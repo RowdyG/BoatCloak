@@ -1744,6 +1744,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       d = jpNationalFromIntl(d.slice(2));
     } else if (d.length === 11 && d.charAt(0) === "1" && d.charAt(1) >= "2" && d.charAt(1) <= "9") {
       d = d.slice(1);
+    } else if (d.length === 10 && /^(50|70|80|90)/.test(d)) {
+      // Japanese mobile/IP typed without the leading trunk 0
+      d = "0" + d;
     }
     return d;
   }
@@ -1791,9 +1794,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const pa = canonicalPhoneDigits(a);
     const pb = canonicalPhoneDigits(b);
     if (!pa || !pb) return false;
-    if (pa === pb && pa.length >= 7) return true;
-    if ((pa.endsWith(pb) || pb.endsWith(pa)) && Math.min(pa.length, pb.length) >= 8) return true;
-    return false;
+    if (pa.length < 7 || pb.length < 7) return false;
+    return pa === pb;
+  }
+
+  function usableCertKey(s) {
+    const k = String(s || "").replace(/[\s\-]/g, "").toLowerCase();
+    if (!k || k.length < 4) return "";
+    if (/^(.)\1+$/.test(k)) return "";
+    if (/^0+$/.test(k)) return "";
+    if ({ none: 1, null: 1, test: 1, unknown: 1, na: 1 }[k]) return "";
+    return k;
   }
 
   function samePerson(a, b) {
@@ -1801,12 +1812,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (a.customerId && b.customerId && a.customerId === b.customerId) return true;
     if (a.id && b.id && a.id === b.id && String(a.id).indexOf("c-") === 0) return true;
     if (phonesMatch(a.phone, b.phone)) return true;
-    const na = normKey(a.name);
-    const nb = normKey(b.name);
-    const ca = normKey(a.certNumber);
-    const cb = normKey(b.certNumber);
-    if (na && nb && na === nb && ca && cb && ca === cb && ca.length >= 4) return true;
-    if (ca && cb && ca === cb && ca.length >= 4) return true;
+    const ca = usableCertKey(a.certNumber);
+    const cb = usableCertKey(b.certNumber);
+    if (ca && cb && ca === cb) return true;
     return false;
   }
 
@@ -1820,10 +1828,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
     const byPhone = list.find((c) => c && phonesMatch(c.phone, person.phone));
     if (byPhone) return byPhone;
-    const na = normKey(person.name);
-    const ca = normKey(person.certNumber);
-    if (na && ca && ca.length >= 4) {
-      const byCert = list.find((c) => c && normKey(c.name) === na && normKey(c.certNumber) === ca);
+    const ca = usableCertKey(person.certNumber);
+    if (ca) {
+      const byCert = list.find((c) => c && usableCertKey(c.certNumber) === ca);
       if (byCert) return byCert;
     }
     return list.find((c) => samePerson(c, person)) || null;
@@ -2073,7 +2080,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       {
         app: APP_NAME,
         type: "divers",
-        appVersion: "1.4.4",
+        appVersion: "1.4.5",
         schema: SCHEMA,
         exportedAt: nowISO(),
         currency: (st.settings && st.settings.currency) || "JPY",
@@ -2483,7 +2490,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (already[0] && !already[0].customerId) already[0].customerId = up.customer.id;
         su.status = "approved";
         su.updatedAt = nowISO();
-        su.updatedBy = opts.crewName || su.updatedBy || "";
+        su.updatedBy = opts.crewName || "crew";
         return { ok: true, state: st, signup: su, alreadyOnTrip: true, returning: !up.created };
       }
       const left = seatsLeft(trip);
@@ -2512,12 +2519,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       su.overbooked = !!(opts.overbook && left !== null && left <= 0);
       su.status = "approved";
       su.updatedAt = nowISO();
-      su.updatedBy = opts.crewName || su.updatedBy || "";
+      su.updatedBy = opts.crewName || "crew";
       return { ok: true, state: st, signup: su, diver: diver, returning: !up.created, overbooked: su.overbooked };
     }
     su.status = decision;
     su.updatedAt = nowISO();
-    su.updatedBy = opts.crewName || su.updatedBy || "";
+    su.updatedBy = opts.crewName || "crew";
     return { ok: true, state: st, signup: su };
   }
 
@@ -2648,7 +2655,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     out.schema = SCHEMA;
     out.exportedAt = nowISO();
     out.app = APP_NAME;
-    out.appVersion = "1.4.4";
+    out.appVersion = "1.4.5";
     return JSON.stringify(out, null, 2);
   }
 
@@ -3113,6 +3120,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     stripGear,
     samePerson,
     phonesMatch,
+    usableCertKey,
     findExistingCustomer,
     findDuplicates,
     customerFromDiver,
@@ -3193,7 +3201,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const out = Object.assign({}, rec);
     if (!out.id) out.id = uid("r");
     if (force || !out.updatedAt) out.updatedAt = nowISO();
-    if (force || !out.updatedBy) out.updatedBy = crewName || out.updatedBy || "";
+    if (force) {
+      out.updatedBy = crewName || (out.updatedBy && out.updatedBy !== "register" ? out.updatedBy : "crew");
+    } else if (!out.updatedBy) {
+      out.updatedBy = crewName || "";
+    }
     out.deleted = !!out.deleted;
     return out;
   }
@@ -3419,6 +3431,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         const d = (t.divers || []).find((x) => x.id === rec.id);
         if (d) { d.updatedAt = rec.updatedAt; d.updatedBy = rec.updatedBy; }
       });
+    } else if (collection === "signups") {
+      const s = (state.signups || []).find((x) => x.id === rec.id);
+      if (s) { s.updatedAt = rec.updatedAt; s.updatedBy = rec.updatedBy; }
+    } else if (collection === "pending") {
+      const p = (state.pendingRegs || []).find((x) => x.id === rec.id);
+      if (p) { p.updatedAt = rec.updatedAt; p.updatedBy = rec.updatedBy; }
     }
   }
 
@@ -3518,7 +3536,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function dedupeRoster(rows) {
     const samePerson = C && C.samePerson ? C.samePerson.bind(C) : function (a, b) {
-      return a && b && a.name && b.name && String(a.name).toLowerCase() === String(b.name).toLowerCase() && a.phone && a.phone === b.phone;
+      if (!a || !b) return false;
+      if (C && C.phonesMatch) return C.phonesMatch(a.phone, b.phone);
+      const pa = String(a.phone || "").replace(/\D/g, "");
+      const pb = String(b.phone || "").replace(/\D/g, "");
+      return !!(pa && pb && pa.length >= 7 && pa === pb);
     };
     const byTrip = {};
     rows.forEach((r) => {
@@ -3947,11 +3969,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 </script>
 <script>
-/* BoatCloak v1.4.4 — crew + self-registration PWA (offline-first, optional shared sync) */
+/* BoatCloak v1.4.5 — crew + self-registration PWA (offline-first, optional shared sync) */
 (function () {
   "use strict";
   const C = window.BCCore;
-  const APP_VERSION = "1.4.4";
+  const APP_VERSION = "1.4.5";
   const IDB_NAME = "boatcloak";
   const IDB_NAME_LEGACY = "boatcheck";
   const IDB_STORE = "kv";
@@ -4784,7 +4806,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div class="about-brand"><img src="icons/logo-emblem.png" alt="" width="48" height="48">' +
       '<div><div class="about-name">BoatCloak</div><div class="muted">v' + APP_VERSION + "</div></div></div>";
     html += "<p>BoatCloak is the crew app for dive boat trips. It keeps the diver roster and a simple show-up check-in, a paid or unpaid check, and a Return Divers database so repeat customers are easy to add next time. Crew can edit a trip from the Trips list, or by tapping the trip banner (or the pencil) at the top of the roster. Crew can mark experienced people with a Trusted tag (and an optional short note, such as “Deep cert, 200+ dives”).</p>";
-    html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them. Trip dates and times are shown in Japan Standard Time. The app will not create a second request, roster seat, or Return Divers record for someone who is already on that trip. Phone numbers are formatted automatically for Japan and US numbers. Notes on the diver and crew forms are optional. The public trip list opens from a short cache so it stays quick, then refreshes in the background.</p>";
+    html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them. Trip dates and times are shown in Japan Standard Time. The app will not create a second request, roster seat, or Return Divers record for someone who is already on that trip. Phone numbers are formatted automatically for Japan and US numbers. Notes on the diver and crew forms are optional. The public trip list opens from a short cache so it stays quick, then refreshes in the background. Different phone numbers are never treated as the same person, including a 10-digit number and an 11-digit Japanese mobile.</p>";
     html += "<p>The app works offline first. Optional shared sync uses a Google Sheet and Apps Script so several crew phones share the same data; changes wait in an outbox until they can be sent. When the app is hosted, the web app URL is filled in from the site config — crew only type the crew key. Sun mode (the sun icon) is a high-contrast display for use in direct sunlight. You can export and import the Return Divers list as CSV or JSON, and export a full backup.</p>";
     html += "<p>Diver data stays in the shop’s private Google Sheet and on crew devices. The public page shows only trip details — not names, phones, or Trusted tags.</p>";
     html += '<p class="muted">Android: Chrome menu → Add to Home screen.<br>iPhone/iPad: Safari Share → Add to Home Screen.<br>Poster QR links only work once the app is hosted at a public https URL (GitHub Pages works). Opening this file from disk or email will not give divers a working link.</p>';
