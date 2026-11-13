@@ -7,15 +7,15 @@
   <meta name="color-scheme" content="dark">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="BoatCheck">
+  <meta name="apple-mobile-web-app-title" content="BoatCloak">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="description" content="Offline dive-boat roster, attendance check-in, paid/unpaid check, and QR registration.">
-  <title>BoatCheck — Dive Boat Tracker</title>
+  <meta name="description" content="BoatCloak: offline dive-boat roster, attendance check-in, paid/unpaid check, and QR registration.">
+  <title>BoatCloak — Dive Boat Tracker</title>
   <link rel="manifest" href="manifest.json">
   <link rel="icon" type="image/png" href="icons/favicon.png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <style>
-/* BoatCheck v1.0.0 — mobile-first, sun-readable, one-handed */
+/* BoatCloak v1.3.0 — mobile-first, sun-readable, one-handed */
 :root {
   --navy: #07131f;
   --navy-2: #0b1c2e;
@@ -85,9 +85,24 @@ html.hc .app { background: #000; }
 }
 html.hc .header { background: #000; border-bottom-width: 2px; }
 .header .brand { font-weight: 800; letter-spacing: .02em; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }
-.header .brand .mark { width: 28px; height: 28px; border-radius: 8px; background: var(--navy-2); display: grid; place-items: center; overflow: hidden; flex-shrink: 0; }
-.header .brand .mark img { width: 28px; height: 28px; }
-.header .trip-line { font-size: .75rem; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46vw; }
+.header .brand .mark { width: 32px; height: 32px; border-radius: 50%; background: #FFFBEF; display: grid; place-items: center; overflow: hidden; flex-shrink: 0; }
+.header .brand .mark img { width: 32px; height: 32px; display: block; }
+.header .trip-line { font-size: .75rem; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw; }
+.sync-chip {
+  min-width: 44px; height: 32px; padding: 0 10px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted);
+  font-weight: 800; font-size: .7rem; letter-spacing: .04em; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.sync-chip.synced { color: var(--green); border-color: var(--green); }
+.sync-chip.syncing { color: var(--teal); border-color: var(--teal); }
+.sync-chip.pending { color: var(--amber); border-color: var(--amber); }
+.sync-chip.error { color: var(--red); border-color: var(--red); }
+html.hc .sync-chip { border-width: 2px; background: #000; }
+.sync-status { font-weight: 700; font-size: .85rem; margin: 8px 0; }
+.sync-status.synced { color: var(--green); }
+.sync-status.error { color: var(--red); }
+.sync-status.pending { color: var(--amber); }
 .icon-btn {
   width: var(--tap); height: var(--tap); min-width: var(--tap);
   border-radius: 14px; display: grid; place-items: center;
@@ -197,6 +212,19 @@ html.hc .btn.primary { color: #000; border-width: 2px; }
 .btn.block { width: 100%; }
 .btn.sm { min-height: 40px; border-radius: 12px; font-size: .9rem; padding: 0 12px; }
 .dock .btn { flex: 1; }
+.dock.triple .btn { font-size: .85rem; padding: 0 8px; gap: 4px; }
+@media (max-width: 360px) {
+  .dock.triple .btn { font-size: .78rem; padding: 0 6px; }
+}
+.ret-row, .ret-pick {
+  display: flex; align-items: flex-start; gap: 10px; text-align: left;
+  width: 100%; margin-bottom: 6px; padding: 10px 12px; min-height: 52px;
+}
+.ret-pick { justify-content: flex-start; flex-direction: column; align-items: flex-start; }
+.ret-pick .meta { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.ret-row.disabled, .ret-pick[data-already="1"] { opacity: .85; }
+.ret-row .name, .ret-pick .name { font-weight: 800; }
+.ret-row input { margin-top: 4px; width: 22px; height: 22px; flex-shrink: 0; }
 
 .field { margin: 0 0 10px; }
 .field label { display: block; font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin-bottom: 4px; }
@@ -399,11 +427,12 @@ html.hc .seg-opt:has(input:checked) { background: #000; color: var(--teal); bord
       <button class="icon-btn" data-act="show-trips-tab" id="btn-trips" aria-label="Trips" title="Trips">☰</button>
       <div class="grow">
         <div class="brand">
-          <span class="mark"><img src="icons/icon-192.png" width="28" height="28" alt=""></span>
-          <span id="brand-name">BoatCheck</span>
+          <span class="mark"><img src="icons/logo-emblem.png" width="32" height="32" alt=""></span>
+          <span id="brand-name">BoatCloak</span>
         </div>
         <div class="trip-line" id="trip-line">No trip open</div>
       </div>
+      <button class="sync-chip local" id="sync-chip" data-act="sync-now" title="Shared sync" aria-label="Local only">Local</button>
       <button class="icon-btn" id="btn-contrast" aria-label="High contrast" aria-pressed="false" title="High-contrast (sun) mode">☀</button>
     </header>
     <div id="banner" class="banner" hidden></div>
@@ -444,14 +473,17 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 //# sourceMappingURL=/sm/261261d91f249d4079ae119cfa50f739467d90fc365078a671172e0f499e862a.map
 </script>
 <script>
-/* BoatCheck core — pure functions, no DOM. Usable in Node tests and the app. */
+/* BoatCloak core — pure functions, no DOM. Usable in Node tests and the app.
+   Reads BoatCheck backups and storage keys so existing data is not lost. */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
   else root.BCCore = factory();
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  const SCHEMA = 3;
+  const SCHEMA = 4;
+  const APP_NAME = "BoatCloak";
+  const APP_NAME_LEGACY = "BoatCheck";
   const PAYLOAD_PREFIX = "BC1:";
   const PAYLOAD_PREFIX_V2 = "BC2:";
   const PAYLOAD_PREFIX_V3 = "BC3:";
@@ -595,6 +627,51 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return stripGear(o);
   }
 
+
+  function isOurAppName(name) {
+    return !name || name === APP_NAME || name === APP_NAME_LEGACY;
+  }
+
+  function displayBrand(shopName) {
+    const s = String(shopName || "").trim();
+    if (s && s !== "EXAMPLE Shop") return s;
+    return APP_NAME;
+  }
+
+  function isEmptyishState(state) {
+    if (!state || typeof state !== "object") return true;
+    if (state.trips && state.trips.length) return false;
+    if (state.customers && state.customers.length) return false;
+    if (state.outbox && state.outbox.length) return false;
+    if (state.pendingRegs && state.pendingRegs.length) return false;
+    const set = state.settings || {};
+    if (set.shopName && set.shopName !== "EXAMPLE Shop") return false;
+    if (set.syncUrl || set.crewKey || set.hostedUrl) return false;
+    return true;
+  }
+
+  /* Prefer current BoatCloak storage; if it is empty, carry over a legacy BoatCheck store. */
+  function resolveStoredState(bags) {
+    bags = bags || {};
+    const parse = (raw) => {
+      if (raw == null || raw === "") return null;
+      const r = importState(raw);
+      return r && r.ok ? r.state : null;
+    };
+    const current = parse(bags.currentIdb) || parse(bags.currentLs);
+    const legacy = parse(bags.legacyIdb) || parse(bags.legacyLs);
+    if (current && !isEmptyishState(current)) {
+      return { ok: true, state: current, migrated: false, from: bags.currentIdb != null && bags.currentIdb !== "" ? "boatcloak" : "boatcloak-state" };
+    }
+    if (legacy && !isEmptyishState(legacy)) {
+      const from = bags.legacyIdb != null && bags.legacyIdb !== "" ? "idb:boatcheck" : "ls:boatcheck-state";
+      return { ok: true, state: legacy, migrated: true, from: from };
+    }
+    if (current) return { ok: true, state: current, migrated: false, from: "boatcloak" };
+    if (legacy) return { ok: true, state: legacy, migrated: true, from: bags.legacyIdb != null ? "idb:boatcheck" : "ls:boatcheck-state" };
+    return { ok: true, state: emptyState(), migrated: false, from: null };
+  }
+
   function emptyPayment(partial) {
     return Object.assign(
       {
@@ -686,11 +763,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         currency: "JPY",
         highContrast: false,
         hostedUrl: "",
+        syncUrl: "",
+        crewKey: "",
+        crewName: "",
+        registerKey: "",
+        lastSyncAt: "",
       },
       customers: [],
       instructors: [],
       trips: [],
       currentTripId: null,
+      outbox: [],
+      pendingRegs: [],
     };
   }
 
@@ -1049,14 +1133,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       try {
         jsonStr = base64UrlDecode(raw.slice(PAYLOAD_PREFIX.length));
       } catch (e) {
-        return { ok: false, error: "QR data is not valid BoatCheck encoding" };
+        return { ok: false, error: "QR data is not valid BoatCloak encoding" };
       }
       via = "v1";
     } else if (raw.charAt(0) === "{") {
       jsonStr = raw;
       via = "json";
     } else {
-      return { ok: false, error: "Not a BoatCheck diver QR" };
+      return { ok: false, error: "Not a BoatCloak diver QR" };
     }
     let obj;
     try {
@@ -1367,9 +1451,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     return JSON.stringify(
       {
-        app: "BoatCheck",
+        app: APP_NAME,
         type: "divers",
-        appVersion: "1.2.0",
+        appVersion: "1.3.0",
         schema: SCHEMA,
         exportedAt: nowISO(),
         currency: (st.settings && st.settings.currency) || "JPY",
@@ -1388,7 +1472,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return { ok: false, error: "File is not valid JSON" };
     }
     if (!data || typeof data !== "object") return { ok: false, error: "File is empty" };
-    if (data.app && data.app !== "BoatCheck") return { ok: false, error: "This file is not a BoatCheck export" };
+    if (data.app && !isOurAppName(data.app)) return { ok: false, error: "This file is not a BoatCloak export" };
     const st = current ? clone(current) : emptyState();
     let incoming = Array.isArray(data.customers) ? data.customers : [];
     if (!incoming.length && data.type !== "divers") return { ok: false, error: "No diver records in this file" };
@@ -1431,7 +1515,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const st = state || emptyState();
     const cur = currency || (st.settings && st.settings.currency) || "JPY";
     const lines = [];
-    lines.push("# BoatCheck return divers");
+    lines.push("# BoatCloak return divers");
     lines.push("# Exported," + nowISO());
     lines.push("# Currency," + cur);
     lines.push(csvRow([
@@ -1541,7 +1625,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function tripManifestCSV(trip) {
     const lines = [];
-    lines.push("# BoatCheck trip manifest");
+    lines.push("# BoatCloak trip manifest");
     lines.push("# Date," + (trip.date || ""));
     lines.push("# Boat," + csvEscape(trip.boatName || ""));
     lines.push("# Site(s)," + csvEscape(trip.sites || ""));
@@ -1597,7 +1681,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function tripPaymentsCSV(trip, currency) {
     const lines = [];
-    lines.push("# BoatCheck trip payments");
+    lines.push("# BoatCloak trip payments");
     lines.push("# Date," + (trip.date || ""));
     lines.push("# Boat," + csvEscape(trip.boatName || ""));
     lines.push("# Exported," + formatJST(nowISO(), true));
@@ -1617,12 +1701,21 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return lines.join("\n") + "\n";
   }
 
+  function exportFilename(kind, date) {
+    const d = date || todayJST();
+    if (kind === "backup") return "boatcloak-backup-" + d + ".json";
+    if (kind === "divers") return "boatcloak-divers-" + d + ".json";
+    if (kind === "divers-csv") return "boatcloak-divers-" + d + ".csv";
+    if (kind === "registration") return "boatcloak-registration.png";
+    return "boatcloak-" + kind + "-" + d;
+  }
+
   function exportState(state) {
     const out = clone(state || emptyState());
     out.schema = SCHEMA;
     out.exportedAt = nowISO();
-    out.app = "BoatCheck";
-    out.appVersion = "1.2.0";
+    out.app = APP_NAME;
+    out.appVersion = "1.3.0";
     return JSON.stringify(out, null, 2);
   }
 
@@ -1634,11 +1727,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return { ok: false, error: "Backup is not valid JSON" };
     }
     if (!data || typeof data !== "object") return { ok: false, error: "Backup is empty" };
-    if (data.app && data.app !== "BoatCheck") {
-      return { ok: false, error: "This file is not a BoatCheck backup" };
+    if (data.app && !isOurAppName(data.app)) {
+      return { ok: false, error: "This file is not a BoatCloak backup" };
     }
     const next = emptyState();
     next.settings = Object.assign(next.settings, data.settings || {});
+    ["syncUrl", "crewKey", "crewName", "registerKey", "lastSyncAt"].forEach((k) => {
+      if (data.settings && data.settings[k] != null) next.settings[k] = data.settings[k];
+    });
     next.customers = Array.isArray(data.customers) ? data.customers.map((c) => emptyCustomer(c)) : [];
     next.trips = Array.isArray(data.trips)
       ? data.trips.map((t) => {
@@ -1662,6 +1758,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (inst) next.instructors = upsertInstructor(next.instructors, inst);
       });
     });
+    next.outbox = Array.isArray(data.outbox) ? data.outbox : [];
+    next.pendingRegs = Array.isArray(data.pendingRegs) ? data.pendingRegs : [];
     next.schema = SCHEMA;
     return { ok: true, state: next };
   }
@@ -1829,6 +1927,99 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return (divers || []).filter((d) => normalizePayment(d.payment).status === f);
   }
 
+
+  function searchText(s) {
+    return String(s || "").trim().toLowerCase();
+  }
+
+  function phoneDigits(s) {
+    return String(s || "").replace(/\D/g, "");
+  }
+
+  function levenshtein(a, b) {
+    a = String(a || "");
+    b = String(b || "");
+    if (a === b) return 0;
+    if (!a.length) return b.length;
+    if (!b.length) return a.length;
+    if (Math.abs(a.length - b.length) > 2 && Math.max(a.length, b.length) > 4) return 99;
+    const rows = [];
+    for (let i = 0; i <= b.length; i++) rows[i] = [i];
+    for (let j = 0; j <= a.length; j++) rows[0][j] = j;
+    for (let i = 1; i <= b.length; i++) {
+      for (let j = 1; j <= a.length; j++) {
+        const cost = a.charAt(j - 1) === b.charAt(i - 1) ? 0 : 1;
+        rows[i][j] = Math.min(rows[i - 1][j] + 1, rows[i][j - 1] + 1, rows[i - 1][j - 1] + cost);
+      }
+    }
+    return rows[b.length][a.length];
+  }
+
+  function searchReturnDivers(customers, query) {
+    const list = customers || [];
+    const q = searchText(query);
+    const qPhone = phoneDigits(query);
+    if (!q && !qPhone) {
+      return list.slice().sort((a, b) => String(a.name).localeCompare(String(b.name))).map((c) => ({ customer: c, score: 0 }));
+    }
+    const out = [];
+    list.forEach((c) => {
+      const name = searchText(c.name);
+      const phone = phoneDigits(c.phone);
+      const addr = searchText(c.address);
+      let score = 0;
+      if (q) {
+        if (name === q) score = 100;
+        else if (name.startsWith(q)) score = 92;
+        else if (name.includes(q)) score = 78;
+        else {
+          const tokens = name.split(/\s+/).filter(Boolean);
+          if (tokens.some((tok) => tok.startsWith(q))) score = 74;
+          else if (q.length >= 3 && tokens.some((tok) => levenshtein(tok, q) <= (q.length >= 6 ? 2 : 1))) score = 52;
+        }
+      }
+      if (qPhone.length >= 3 && phone.indexOf(qPhone) >= 0) score = Math.max(score, qPhone.length >= 7 ? 95 : 84);
+      if (!score && q.length >= 3 && addr.includes(q)) score = 40;
+      if (score > 0) out.push({ customer: c, score: score });
+    });
+    out.sort((a, b) => b.score - a.score || String(a.customer.name).localeCompare(String(b.customer.name)));
+    return out;
+  }
+
+  function lastActivityFor(customer, trips) {
+    const h = customerHistory(customer, trips);
+    const last = h.appearances && h.appearances.length ? h.appearances[h.appearances.length - 1] : null;
+    if (!last) return { activity: "fun", instructor: "", course: "" };
+    return normalizeActivity(last);
+  }
+
+  function prepareReturningDiver(customer, trips, overrides) {
+    const act = lastActivityFor(customer, trips);
+    const extra = Object.assign(
+      {
+        addedVia: "return",
+        activity: act.activity,
+        instructor: act.instructor,
+        course: act.course,
+        payment: emptyPayment({ status: "unpaid", amount: 0, collected: 0 }),
+        attendance: "not_checked_in",
+        checkedInAt: null,
+      },
+      overrides || {}
+    );
+    if (!extra.payment) extra.payment = emptyPayment({ status: "unpaid" });
+    extra.payment = normalizePayment(Object.assign({ status: "unpaid" }, extra.payment));
+    if (!extra.payment.status) extra.payment.status = "unpaid";
+    const d = diverFromCustomer(customer, extra);
+    d.addedVia = "return";
+    if (d.payment && !d.payment.status) d.payment.status = "unpaid";
+    return migrateActivity(d);
+  }
+
+  function alreadyOnTrip(person, divers) {
+    return findDuplicates(person, divers || []);
+  }
+
   function currentTrip(state) {
     if (!state || !state.trips) return null;
     return state.trips.find((t) => t.id === state.currentTripId) || null;
@@ -1836,6 +2027,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   return {
     SCHEMA,
+    APP_NAME,
+    APP_NAME_LEGACY,
+    isOurAppName,
+    displayBrand,
+    isEmptyishState,
+    resolveStoredState,
     QR_VERSION,
     PAYLOAD_PREFIX,
     PAYLOAD_PREFIX_V2,
@@ -1909,10 +2106,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     tripManifestCSV,
     tripPaymentsCSV,
     exportState,
+    exportFilename,
     importState,
     exampleState,
     filterPayments,
     currentTrip,
+    searchReturnDivers,
+    lastActivityFor,
+    prepareReturningDiver,
+    alreadyOnTrip,
+    searchText,
+    phoneDigits,
+    levenshtein,
     base64UrlEncode,
     base64UrlDecode,
   };
@@ -1920,15 +2125,659 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 </script>
 <script>
-/* BoatCheck v1.2.0 — crew + self-registration PWA (no network at runtime) */
+/* BoatCloak shared sync — offline-first outbox + last-write-wins merge.
+   Works in the browser and in Node tests. No DOM required. */
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory(typeof require === "function" ? require("./core.js") : root.BCCore);
+  else root.BCSync = factory(root.BCCore);
+})(typeof globalThis !== "undefined" ? globalThis : this, function (C) {
+  "use strict";
+
+  const API_VERSION = 1;
+  const COLLECTIONS = ["divers", "trips", "roster", "visits", "instructors", "pending"];
+
+  function nowISO() {
+    return C && C.nowISO ? C.nowISO() : new Date().toISOString();
+  }
+
+  function uid(prefix) {
+    return C && C.uid ? C.uid(prefix) : (prefix || "id") + "-" + Math.random().toString(36).slice(2, 10);
+  }
+
+  function clone(v) {
+    return C && C.clone ? C.clone(v) : JSON.parse(JSON.stringify(v));
+  }
+
+  function configured(settings) {
+    const s = settings || {};
+    return !!(s.syncUrl && String(s.syncUrl).trim() && s.crewKey && String(s.crewKey).trim());
+  }
+
+  function crewNameOf(state) {
+    return (state && state.settings && state.settings.crewName) || "";
+  }
+
+  function stamp(rec, crewName, force) {
+    const out = Object.assign({}, rec);
+    if (!out.id) out.id = uid("r");
+    if (force || !out.updatedAt) out.updatedAt = nowISO();
+    if (force || !out.updatedBy) out.updatedBy = crewName || out.updatedBy || "";
+    out.deleted = !!out.deleted;
+    return out;
+  }
+
+  function newer(a, b) {
+    const ta = (a && a.updatedAt) || "";
+    const tb = (b && b.updatedAt) || "";
+    return ta > tb;
+  }
+
+  function asBool(v) {
+    if (v === true || v === 1) return true;
+    const s = String(v || "").toLowerCase();
+    return s === "true" || s === "1" || s === "yes";
+  }
+
+  function indexById(list) {
+    const map = {};
+    (list || []).forEach((r) => {
+      if (r && r.id) map[r.id] = r;
+    });
+    return map;
+  }
+
+  function instructorId(name) {
+    return "inst:" + String(name || "").trim().toLowerCase();
+  }
+
+  function visitId(customerId, tripId) {
+    return "vis:" + String(customerId || "") + ":" + String(tripId || "");
+  }
+
+  function contentKey(rec) {
+    if (!rec) return "";
+    const copy = Object.assign({}, rec);
+    delete copy.updatedAt;
+    delete copy.updatedBy;
+    return JSON.stringify(copy);
+  }
+
+  function flatten(state) {
+    const st = state || (C && C.emptyState ? C.emptyState() : { settings: {}, customers: [], trips: [], instructors: [], outbox: [] });
+    const crew = crewNameOf(st);
+    const divers = [];
+    const trips = [];
+    const roster = [];
+    const visits = [];
+    const instructors = [];
+
+    (st.customers || []).forEach((c) => {
+      const rec = stamp({
+        id: c.id,
+        name: c.name || "",
+        phone: c.phone || "",
+        address: c.address || "",
+        certLevel: c.certLevel || "",
+        certAgency: c.certAgency || "",
+        certNumber: c.certNumber || "",
+        emergencyName: c.emergencyName || "",
+        emergencyPhone: c.emergencyPhone || "",
+        notes: c.notes || "",
+        importedVisits: c.importedVisits || [],
+        createdAt: c.createdAt || "",
+        updatedAt: c.updatedAt,
+        updatedBy: c.updatedBy,
+        deleted: !!c.deleted,
+      }, crew, false);
+      divers.push(rec);
+      (c.importedVisits || []).forEach((v) => {
+        if (!v) return;
+        visits.push(stamp({
+          id: v.id || visitId(c.id, v.tripId),
+          customerId: c.id,
+          tripId: v.tripId || "",
+          date: v.date || "",
+          boatName: v.boatName || "",
+          sites: v.sites || "",
+          attendance: v.attendance || "",
+          checkedInAt: v.checkedInAt || "",
+          activity: v.activity || "fun",
+          instructor: v.instructor || "",
+          course: v.course || "",
+          payStatus: v.payment && v.payment.status || "",
+          payAmount: v.payment && v.payment.amount || 0,
+          payCollected: v.payment && v.payment.collected || 0,
+          payMethod: v.payment && v.payment.method || "",
+          payNote: v.payment && v.payment.note || "",
+          updatedAt: v.updatedAt,
+          updatedBy: v.updatedBy,
+          deleted: !!v.deleted,
+        }, crew, false));
+      });
+    });
+
+    (st.trips || []).forEach((t) => {
+      trips.push(stamp({
+        id: t.id,
+        date: t.date || "",
+        boatName: t.boatName || "",
+        sites: t.sites || "",
+        divemaster: t.divemaster || "",
+        notes: t.notes || "",
+        log: t.log || [],
+        createdAt: t.createdAt || "",
+        updatedAt: t.updatedAt,
+        updatedBy: t.updatedBy,
+        deleted: !!t.deleted,
+      }, crew, false));
+      (t.divers || []).forEach((d) => {
+        const pay = (C && C.normalizePayment ? C.normalizePayment(d.payment) : (d.payment || {}));
+        const act = (C && C.normalizeActivity ? C.normalizeActivity(d) : d);
+        roster.push(stamp({
+          id: d.id,
+          tripId: t.id,
+          customerId: d.customerId || "",
+          name: d.name || "",
+          phone: d.phone || "",
+          address: d.address || "",
+          certLevel: d.certLevel || "",
+          certAgency: d.certAgency || "",
+          certNumber: d.certNumber || "",
+          emergencyName: d.emergencyName || "",
+          emergencyPhone: d.emergencyPhone || "",
+          notes: d.notes || "",
+          attendance: d.attendance || "not_checked_in",
+          checkedInAt: d.checkedInAt || "",
+          activity: act.activity || "fun",
+          instructor: act.instructor || "",
+          course: act.course || "",
+          payStatus: pay.status || "unpaid",
+          payAmount: pay.amount || 0,
+          payCollected: pay.collected || 0,
+          payMethod: pay.method || "",
+          payNote: pay.note || "",
+          addedVia: d.addedVia || "",
+          addedAt: d.addedAt || "",
+          updatedAt: d.updatedAt,
+          updatedBy: d.updatedBy,
+          deleted: !!d.deleted,
+        }, crew, false));
+      });
+    });
+
+    (st.instructors || []).forEach((name) => {
+      const n = String(name || "").trim();
+      if (!n) return;
+      instructors.push(stamp({
+        id: instructorId(n),
+        name: n,
+        updatedAt: "",
+        updatedBy: crew,
+        deleted: false,
+      }, crew, false));
+    });
+
+    const pending = (st.pendingRegs || []).map((p) => stamp(Object.assign({}, p), crew, false));
+    return { divers: divers, trips: trips, roster: roster, visits: visits, instructors: instructors, pending: pending };
+  }
+
+  /* Compare previous flatten to current, stamp changed records, and enqueue. */
+  function captureChanges(state, prevFlat) {
+    const crew = crewNameOf(state);
+    const next = flatten(state);
+    const prev = prevFlat || { divers: [], trips: [], roster: [], visits: [], instructors: [], pending: [] };
+    state.outbox = state.outbox || [];
+    const enqueue = (collection, record, op) => {
+      const stamped = stamp(Object.assign({}, record), crew, true);
+      if (op === "delete") stamped.deleted = true;
+      state.outbox = state.outbox.filter((x) => !(x.collection === collection && x.record && x.record.id === stamped.id));
+      state.outbox.push({ id: uid("ob"), collection: collection, op: op || "upsert", record: stamped, queuedAt: stamped.updatedAt });
+      return stamped;
+    };
+    COLLECTIONS.forEach((col) => {
+      const pmap = indexById(prev[col]);
+      const nmap = indexById(next[col]);
+      Object.keys(nmap).forEach((id) => {
+        if (contentKey(pmap[id]) !== contentKey(nmap[id])) {
+          const stamped = enqueue(col, nmap[id], "upsert");
+          writeStampBack(state, col, stamped);
+        }
+      });
+      Object.keys(pmap).forEach((id) => {
+        if (!nmap[id] && !asBool(pmap[id].deleted)) {
+          enqueue(col, pmap[id], "delete");
+        }
+      });
+    });
+    return flatten(state);
+  }
+
+  function writeStampBack(state, collection, rec) {
+    if (!rec || !rec.id) return;
+    if (collection === "divers") {
+      const c = (state.customers || []).find((x) => x.id === rec.id);
+      if (c) { c.updatedAt = rec.updatedAt; c.updatedBy = rec.updatedBy; }
+    } else if (collection === "trips") {
+      const t = (state.trips || []).find((x) => x.id === rec.id);
+      if (t) { t.updatedAt = rec.updatedAt; t.updatedBy = rec.updatedBy; }
+    } else if (collection === "roster") {
+      (state.trips || []).forEach((t) => {
+        const d = (t.divers || []).find((x) => x.id === rec.id);
+        if (d) { d.updatedAt = rec.updatedAt; d.updatedBy = rec.updatedBy; }
+      });
+    }
+  }
+
+  function mergeLists(localList, remoteList, outboxForCol) {
+    const map = indexById(localList);
+    const pending = indexById((outboxForCol || []).map((x) => x.record));
+    (remoteList || []).forEach((r) => {
+      if (!r || !r.id) return;
+      const loc = map[r.id];
+      const queued = pending[r.id];
+      if (queued && newer(queued, r)) {
+        map[r.id] = queued;
+        return;
+      }
+      if (!loc) map[r.id] = r;
+      else if (newer(r, loc)) map[r.id] = r;
+    });
+    return Object.keys(map).map((k) => map[k]);
+  }
+
+  function rosterToDiver(row) {
+    const empty = C && C.emptyDiver ? C.emptyDiver : function (x) { return Object.assign({}, x); };
+    const pay = C && C.normalizePayment
+      ? C.normalizePayment({
+          status: row.payStatus,
+          amount: row.payAmount,
+          collected: row.payCollected,
+          method: row.payMethod,
+          note: row.payNote,
+        })
+      : { status: row.payStatus || "unpaid", amount: row.payAmount, collected: row.payCollected, method: row.payMethod, note: row.payNote };
+    const d = empty({
+      id: row.id,
+      customerId: row.customerId,
+      name: row.name,
+      phone: row.phone,
+      address: row.address,
+      certLevel: row.certLevel,
+      certAgency: row.certAgency,
+      certNumber: row.certNumber,
+      emergencyName: row.emergencyName,
+      emergencyPhone: row.emergencyPhone,
+      notes: row.notes,
+      attendance: row.attendance,
+      checkedInAt: row.checkedInAt || null,
+      activity: row.activity,
+      instructor: row.instructor,
+      course: row.course,
+      addedVia: row.addedVia,
+      addedAt: row.addedAt,
+      updatedAt: row.updatedAt,
+      updatedBy: row.updatedBy,
+      payment: pay,
+    });
+    d.deleted = asBool(row.deleted);
+    return d;
+  }
+
+  function rowToCustomer(row) {
+    const empty = C && C.emptyCustomer ? C.emptyCustomer : function (x) { return Object.assign({}, x); };
+    const c = empty(row);
+    c.updatedAt = row.updatedAt;
+    c.updatedBy = row.updatedBy;
+    c.deleted = asBool(row.deleted);
+    if (typeof row.importedVisits === "string") {
+      try { c.importedVisits = JSON.parse(row.importedVisits); } catch (e) { c.importedVisits = c.importedVisits || []; }
+    }
+    return c;
+  }
+
+  function rowToTrip(row) {
+    const empty = C && C.emptyTrip ? C.emptyTrip : function (x) { return Object.assign({ divers: [], log: [] }, x); };
+    const t = empty({
+      id: row.id,
+      date: row.date,
+      boatName: row.boatName,
+      sites: row.sites,
+      divemaster: row.divemaster,
+      notes: row.notes,
+      createdAt: row.createdAt,
+    });
+    t.updatedAt = row.updatedAt;
+    t.updatedBy = row.updatedBy;
+    t.deleted = asBool(row.deleted);
+    if (Array.isArray(row.log)) t.log = row.log;
+    else if (typeof row.log === "string" && row.log) {
+      try { t.log = JSON.parse(row.log); } catch (e) { t.log = t.log || []; }
+    }
+    t.divers = [];
+    return t;
+  }
+
+  function dedupeRoster(rows) {
+    const samePerson = C && C.samePerson ? C.samePerson.bind(C) : function (a, b) {
+      return a && b && a.name && b.name && String(a.name).toLowerCase() === String(b.name).toLowerCase() && a.phone && a.phone === b.phone;
+    };
+    const byTrip = {};
+    rows.forEach((r) => {
+      if (asBool(r.deleted)) return;
+      const k = r.tripId || "";
+      if (!byTrip[k]) byTrip[k] = [];
+      byTrip[k].push(r);
+    });
+    const drop = {};
+    Object.keys(byTrip).forEach((tripId) => {
+      const list = byTrip[tripId];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
+          if (a.customerId && b.customerId && a.customerId === b.customerId || samePerson(a, b)) {
+            const keep = newer(a, b) ? a : (newer(b, a) ? b : a);
+            const lose = keep === a ? b : a;
+            drop[lose.id] = true;
+          }
+        }
+      }
+    });
+    return rows.map((r) => {
+      if (drop[r.id]) return Object.assign({}, r, { deleted: true, updatedAt: nowISO() });
+      return r;
+    });
+  }
+
+  function applyRemote(state, payload) {
+    const next = C && C.clone ? C.clone(state) : clone(state);
+    const outbox = next.outbox || [];
+    const byCol = {};
+    COLLECTIONS.forEach((c) => { byCol[c] = outbox.filter((x) => x.collection === c); });
+
+    const divers = mergeLists(flatten(next).divers, payload.divers, byCol.divers);
+    const trips = mergeLists(flatten(next).trips, payload.trips, byCol.trips);
+    let roster = mergeLists(flatten(next).roster, payload.roster, byCol.roster);
+    roster = dedupeRoster(roster);
+    const visits = mergeLists(flatten(next).visits, payload.visits, byCol.visits);
+    const instructors = mergeLists(flatten(next).instructors, payload.instructors, byCol.instructors);
+    const pending = mergeLists(next.pendingRegs || [], payload.pending, byCol.pending);
+
+    next.customers = divers.filter((r) => !asBool(r.deleted)).map(rowToCustomer);
+    const visitByCust = {};
+    visits.filter((v) => !asBool(v.deleted)).forEach((v) => {
+      const id = v.customerId;
+      if (!visitByCust[id]) visitByCust[id] = [];
+      visitByCust[id].push({
+        id: v.id,
+        tripId: v.tripId,
+        date: v.date,
+        boatName: v.boatName,
+        sites: v.sites,
+        attendance: v.attendance,
+        checkedInAt: v.checkedInAt || null,
+        activity: v.activity,
+        instructor: v.instructor,
+        course: v.course,
+        payment: {
+          status: v.payStatus || "unpaid",
+          amount: Number(v.payAmount) || 0,
+          collected: Number(v.payCollected) || 0,
+          method: v.payMethod || "",
+          note: v.payNote || "",
+        },
+      });
+    });
+    next.customers.forEach((c) => {
+      const extra = visitByCust[c.id] || [];
+      if (!extra.length) return;
+      const have = {};
+      (c.importedVisits || []).forEach((v) => { if (v && v.tripId) have[v.tripId] = true; });
+      extra.forEach((v) => {
+        if (v.tripId && have[v.tripId]) return;
+        c.importedVisits = (c.importedVisits || []).concat([v]);
+        if (v.tripId) have[v.tripId] = true;
+      });
+    });
+
+    const tripMap = {};
+    trips.filter((t) => !asBool(t.deleted)).forEach((t) => { tripMap[t.id] = rowToTrip(t); });
+    roster.forEach((r) => {
+      if (asBool(r.deleted)) return;
+      const t = tripMap[r.tripId];
+      if (!t) return;
+      t.divers.push(rosterToDiver(r));
+    });
+    const localOrder = (next.trips || []).map((t) => t.id);
+    const mergedTrips = [];
+    const seen = {};
+    localOrder.forEach((id) => { if (tripMap[id]) { mergedTrips.push(tripMap[id]); seen[id] = true; } });
+    Object.keys(tripMap).forEach((id) => { if (!seen[id]) mergedTrips.push(tripMap[id]); });
+    next.trips = mergedTrips;
+    if (next.currentTripId && !tripMap[next.currentTripId]) {
+      next.currentTripId = (next.trips[0] && next.trips[0].id) || null;
+    }
+
+    const instNames = instructors.filter((r) => !asBool(r.deleted) && r.name).map((r) => r.name);
+    const have = {};
+    next.instructors = [];
+    instNames.forEach((n) => {
+      const k = String(n).trim().toLowerCase();
+      if (!k || have[k]) return;
+      have[k] = true;
+      next.instructors.push(n);
+    });
+    next.instructors.sort((a, b) => String(a).localeCompare(String(b)));
+
+    next.pendingRegs = pending || [];
+    importPending(next, payload.pending || pending);
+
+    next.outbox = clearOutbox(outbox, {
+      divers: divers, trips: trips, roster: roster, visits: visits, instructors: instructors, pending: pending,
+    });
+    if (payload.serverTime) next.settings.lastSyncAt = payload.serverTime;
+    else next.settings.lastSyncAt = nowISO();
+    return next;
+  }
+
+  function importPending(state, pending) {
+    if (!C) return;
+    (pending || []).forEach((p) => {
+      if (!p || asBool(p.deleted) || asBool(p.accepted)) return;
+      if ((state.pendingRegs || []).some((x) => x.id === p.id && asBool(x.accepted))) return;
+      const rec = C.emptyCustomer(p);
+      const up = C.upsertCustomer(state.customers, rec);
+      state.customers = up.customers;
+      if (p.tripId) {
+        const trip = (state.trips || []).find((t) => t.id === p.tripId);
+        if (trip && C.alreadyOnTrip && !C.alreadyOnTrip(up.customer, trip.divers).length) {
+          const d = C.prepareReturningDiver
+            ? C.prepareReturningDiver(up.customer, state.trips, { addedVia: "register" })
+            : C.diverFromCustomer(up.customer, { addedVia: "register" });
+          d.addedVia = "register";
+          trip.divers.push(d);
+        }
+      }
+      const accepted = stamp({
+        id: p.id,
+        tripId: p.tripId || "",
+        name: p.name,
+        phone: p.phone,
+        address: p.address,
+        accepted: true,
+        deleted: false,
+        updatedBy: crewNameOf(state),
+      }, crewNameOf(state), true);
+      state.pendingRegs = (state.pendingRegs || []).filter((x) => x.id !== p.id).concat([accepted]);
+      state.outbox = state.outbox || [];
+      state.outbox = state.outbox.filter((x) => !(x.collection === "pending" && x.record && x.record.id === p.id));
+      state.outbox.push({ id: uid("ob"), collection: "pending", op: "upsert", record: accepted, queuedAt: accepted.updatedAt });
+    });
+  }
+
+  function clearOutbox(outbox, remote) {
+    return (outbox || []).filter((item) => {
+      const list = remote[item.collection] || [];
+      const rem = list.find((r) => r && r.id === (item.record && item.record.id));
+      if (!rem) return true;
+      if (newer(item.record, rem)) return true;
+      return false;
+    });
+  }
+
+  function buildRequest(state, action) {
+    const settings = (state && state.settings) || {};
+    const changes = { divers: [], trips: [], roster: [], visits: [], instructors: [], pending: [] };
+    if (!settings.lastSyncAt) {
+      const flat = flatten(state);
+      COLLECTIONS.forEach((c) => { changes[c] = flat[c] || []; });
+    } else {
+      (state.outbox || []).forEach((item) => {
+        if (!item || !item.collection || !item.record) return;
+        if (!changes[item.collection]) changes[item.collection] = [];
+        changes[item.collection].push(item.record);
+      });
+    }
+    return {
+      action: action || "sync",
+      key: settings.crewKey || "",
+      crewName: settings.crewName || "",
+      changes: changes,
+    };
+  }
+
+  function buildRegisterRequest(diver, settings) {
+    return {
+      action: "register",
+      key: (settings && settings.registerKey) || "",
+      pending: {
+        id: uid("p"),
+        tripId: diver.tripId || "",
+        name: diver.name,
+        phone: diver.phone,
+        address: diver.address,
+        certLevel: diver.certLevel,
+        certAgency: diver.certAgency,
+        certNumber: diver.certNumber,
+        emergencyName: diver.emergencyName,
+        emergencyPhone: diver.emergencyPhone,
+        notes: diver.notes,
+        activity: diver.activity || "fun",
+        instructor: diver.instructor || "",
+        course: diver.course || "",
+      },
+    };
+  }
+
+  /* text/plain POST — simple request, no CORS preflight. */
+  function postPlain(url, body, fetchImpl) {
+    const fetchFn = fetchImpl || (typeof fetch === "function" ? fetch : null);
+    if (!fetchFn) return Promise.reject(new Error("fetch is not available"));
+    return fetchFn(String(url).trim(), {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+      redirect: "follow",
+    }).then((res) => {
+      return res.text().then((text) => {
+        let data;
+        try { data = JSON.parse(text); } catch (e) {
+          throw new Error("Sync server did not return JSON");
+        }
+        if (!res.ok && !data) throw new Error("Sync failed (" + res.status + ")");
+        return data;
+      });
+    });
+  }
+
+  function pingGet(url, fetchImpl) {
+    const fetchFn = fetchImpl || (typeof fetch === "function" ? fetch : null);
+    const u = String(url).trim();
+    const sep = u.indexOf("?") >= 0 ? "&" : "?";
+    return fetchFn(u + sep + "action=ping", { method: "GET", redirect: "follow" }).then((res) => res.text().then((text) => JSON.parse(text)));
+  }
+
+  async function runSync(state, opts) {
+    opts = opts || {};
+    const settings = (state && state.settings) || {};
+    if (!configured(settings) && !opts.force) {
+      return { ok: true, skipped: true, reason: "not configured", state: state };
+    }
+    const req = buildRequest(state, opts.action || "sync");
+    const data = opts.post
+      ? await opts.post(req)
+      : await postPlain(settings.syncUrl, req, opts.fetch);
+    if (!data || data.ok === false) {
+      return { ok: false, error: (data && data.error) || "Sync failed", state: state, response: data };
+    }
+    const next = applyRemote(state, data);
+    return { ok: true, state: next, response: data };
+  }
+
+  async function runRegister(diver, settings, opts) {
+    opts = opts || {};
+    const url = (settings && settings.syncUrl) || "";
+    if (!url) return { ok: false, skipped: true, reason: "not configured" };
+    const req = buildRegisterRequest(diver, settings);
+    const data = opts.post
+      ? await opts.post(req)
+      : await postPlain(url, req, opts.fetch);
+    if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "Register failed", response: data };
+    return { ok: true, id: data.id, response: data };
+  }
+
+  function statusOf(state, extra) {
+    extra = extra || {};
+    if (!configured(state && state.settings)) {
+      return { kind: "local", label: "Local only", pending: 0 };
+    }
+    if (extra.error) return { kind: "error", label: extra.error, pending: (state.outbox || []).length };
+    if (extra.syncing) return { kind: "syncing", label: "Syncing…", pending: (state.outbox || []).length };
+    const pending = (state.outbox || []).length;
+    if (pending) return { kind: "pending", label: pending + " waiting to sync", pending: pending };
+    const at = state.settings && state.settings.lastSyncAt;
+    if (at && C && C.formatJST) return { kind: "synced", label: "Synced " + C.formatJST(at, true), pending: 0 };
+    if (at) return { kind: "synced", label: "Synced", pending: 0 };
+    return { kind: "ready", label: "Ready to sync", pending: 0 };
+  }
+
+  return {
+    API_VERSION: API_VERSION,
+    COLLECTIONS: COLLECTIONS,
+    configured: configured,
+    flatten: flatten,
+    captureChanges: captureChanges,
+    applyRemote: applyRemote,
+    mergeLists: mergeLists,
+    newer: newer,
+    stamp: stamp,
+    buildRequest: buildRequest,
+    buildRegisterRequest: buildRegisterRequest,
+    postPlain: postPlain,
+    pingGet: pingGet,
+    runSync: runSync,
+    runRegister: runRegister,
+    statusOf: statusOf,
+    clearOutbox: clearOutbox,
+    instructorId: instructorId,
+  };
+});
+
+</script>
+<script>
+/* BoatCloak v1.3.0 — crew + self-registration PWA (offline-first, optional shared sync) */
 (function () {
   "use strict";
   const C = window.BCCore;
-  const APP_VERSION = "1.2.0";
-  const IDB_NAME = "boatcheck";
+  const APP_VERSION = "1.3.0";
+  const IDB_NAME = "boatcloak";
+  const IDB_NAME_LEGACY = "boatcheck";
   const IDB_STORE = "kv";
   const STATE_KEY = "state";
-  const DRAFT_KEY = "boatcheck-register-draft";
+  const LS_KEY = "boatcloak-state";
+  const LS_KEY_LEGACY = "boatcheck-state";
+  const DRAFT_KEY = "boatcloak-register-draft";
+  const DRAFT_KEY_LEGACY = "boatcheck-register-draft";
+  const S = window.BCSync;
 
   const $ = (sel, el) => (el || document).querySelector(sel);
   const $$ = (sel, el) => Array.from((el || document).querySelectorAll(sel));
@@ -2024,10 +2873,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return d + "-" + (b || "trip");
   }
 
-  function openIdb() {
+  function openIdb(name) {
     return new Promise((resolve, reject) => {
       if (!window.indexedDB) return reject(new Error("no idb"));
-      const req = indexedDB.open(IDB_NAME, 1);
+      const req = indexedDB.open(name || IDB_NAME, 1);
       req.onupgradeneeded = () => {
         const db = req.result;
         if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
@@ -2038,7 +2887,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function idbGet(key) {
-    return openIdb().then(
+    return openIdb(IDB_NAME).then(
       (db) =>
         new Promise((resolve, reject) => {
           const tx = db.transaction(IDB_STORE, "readonly");
@@ -2050,7 +2899,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function idbSet(key, val) {
-    return openIdb().then(
+    return openIdb(IDB_NAME).then(
       (db) =>
         new Promise((resolve, reject) => {
           const tx = db.transaction(IDB_STORE, "readwrite");
@@ -2061,22 +2910,43 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     );
   }
 
+  async function readIdbIfExists(name) {
+    try {
+      if (indexedDB.databases) {
+        const list = await indexedDB.databases();
+        if (!(list || []).some((d) => d.name === name)) return null;
+      }
+      return await openIdb(name).then(
+        (db) =>
+          new Promise((resolve, reject) => {
+            if (!db.objectStoreNames.contains(IDB_STORE)) { resolve(null); return; }
+            const tx = db.transaction(IDB_STORE, "readonly");
+            const r = tx.objectStore(IDB_STORE).get(STATE_KEY);
+            r.onsuccess = () => resolve(r.result);
+            r.onerror = () => reject(r.error);
+          })
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
+  let lastMigration = { migrated: false, from: null };
+
   async function loadState() {
-    try {
-      const v = await idbGet(STATE_KEY);
-      if (v && typeof v === "object") {
-        const r = C.importState(v);
-        return r.ok ? r.state : v;
-      }
-    } catch (e) {}
-    try {
-      const raw = localStorage.getItem("boatcheck-state");
-      if (raw) {
-        const r = C.importState(raw);
-        return r.ok ? r.state : JSON.parse(raw);
-      }
-    } catch (e) {}
-    return C.emptyState();
+    let currentIdb = null, legacyIdb = null, currentLs = null, legacyLs = null;
+    try { currentIdb = await readIdbIfExists(IDB_NAME); } catch (e) {}
+    try { legacyIdb = await readIdbIfExists(IDB_NAME_LEGACY); } catch (e) {}
+    try { currentLs = localStorage.getItem(LS_KEY); } catch (e) {}
+    try { legacyLs = localStorage.getItem(LS_KEY_LEGACY); } catch (e) {}
+    const resolved = C.resolveStoredState({
+      currentIdb: currentIdb,
+      currentLs: currentLs,
+      legacyIdb: legacyIdb,
+      legacyLs: legacyLs,
+    });
+    lastMigration = { migrated: !!resolved.migrated, from: resolved.from || null };
+    return resolved.state || C.emptyState();
   }
 
   async function persistState(state) {
@@ -2085,16 +2955,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       await idbSet(STATE_KEY, payload);
     } catch (e) {}
     try {
-      localStorage.setItem("boatcheck-state", JSON.stringify(payload));
+      localStorage.setItem(LS_KEY, JSON.stringify(payload));
     } catch (e) {}
   }
 
   let state = C.emptyState();
   let saveTimer = 0;
+  let prevFlat = null;
+  let syncing = false;
+  let lastSyncError = "";
+  let syncTimer = 0;
+  let syncInterval = 0;
+
   function scheduleSave() {
+    if (S) prevFlat = S.captureChanges(state, prevFlat);
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => persistState(state), 80);
-    return persistState(state);
+    const p = persistState(state);
+    p.then(() => maybeSync("change"));
+    return p;
   }
 
   function trip() {
@@ -2236,8 +3115,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     $("#app-poster").hidden = true;
     $("#app-crew").hidden = false;
     const t = trip();
-    const shop = state.settings.shopName || "BoatCheck";
-    $("#brand-name").textContent = shop === "EXAMPLE Shop" ? "BoatCheck" : shop || "BoatCheck";
+    const shop = C.displayBrand(state.settings.shopName);
+    $("#brand-name").textContent = shop;
+    updateSyncChip();
     $("#trip-line").textContent = t ? ((t.date || "") + " · " + (t.boatName || "Untitled trip")) : "No trip open";
     const hcBtn = $("#btn-contrast");
     if (hcBtn) hcBtn.setAttribute("aria-pressed", state.settings.highContrast ? "true" : "false");
@@ -2571,7 +3451,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += "</div>";
 
     html += '<div class="card"><h2>Backup</h2>';
-    html += '<p class="muted" style="margin-top:0">Data stays on this device. Export a JSON backup to copy it to another phone or to keep a file you can email. The full backup includes the Return Divers database and every trip.</p>';
+    html += '<p class="muted" style="margin-top:0">Data stays on this device unless Shared sync is set up. Export a JSON backup to copy it to another phone or to keep a file you can email. The full backup includes the Return Divers database and every trip.</p>';
     html += '<div class="wrap">';
     html += '<button class="btn sm primary" data-act="export-json">Export JSON backup</button>';
     html += '<button class="btn sm" data-act="import-json">Import backup</button>';
@@ -2587,16 +3467,18 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<input type="file" id="import-divers-file" accept="application/json,.json,text/csv,.csv" hidden>';
     html += "</div></div>";
 
+    html += renderSyncCard();
+
     html += '<div class="card"><h2>EXAMPLE data</h2>';
     html += '<p class="muted" style="margin-top:0">Loads two fictional trips (14 divers, including 6 return divers) for practice. Names are prefixed EXAMPLE. This replaces the current data on this device.</p>';
     html += '<button class="btn sm" data-act="load-example">Load EXAMPLE trip</button>';
     html += '<button class="btn sm danger" data-act="wipe">Erase all data</button></div>';
 
     html += '<div class="card"><h2>About</h2>';
-    html += '<p style="margin-top:0">BoatCheck v' + APP_VERSION +
-      " is an offline dive-boat roster, paid/unpaid check, and QR registration tool. No account, no server, no network calls. Install it to the home screen to use the camera at sea.</p>";
+    html += '<p style="margin-top:0">BoatCloak v' + APP_VERSION +
+      " is an offline-first dive-boat roster, paid/unpaid check, and QR registration tool. It works with no account and no backend. Optional shared sync (More → Shared sync) can use a Google Sheet so several crew phones share the same roster and Return Divers database.</p>";
     html += '<p class="muted">Android: Chrome menu → Add to Home screen.<br>iPhone/iPad: Safari Share → Add to Home Screen.<br>Camera scanning needs https (or a saved home-screen app). Opening this file from disk or email will not unlock the camera — host the folder over https (GitHub Pages works) and open it from that address, or from the home-screen icon.</p>';
-    html += '<p class="muted">Limitations: data does not sync between crew phones. Export a backup to share. Self-registration poster links only work once the app is hosted at a public https URL.</p>';
+    html += '<p class="muted">The app keeps working with no backend configured (local-only). Self-registration poster links only work once the app is hosted at a public https URL. The shared Sheet holds divers’ phone, address, and emergency contact — keep it in the shop owner’s account and do not share it publicly.</p>';
     html += '<p class="sw-note" id="sw-status"></p></div>';
     return html;
   }
@@ -2613,6 +3495,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function renderDock() {
     const dock = $("#dock");
+    dock.classList.remove("triple");
     if (ui.tab === "more" || ui.tab === "trips") {
       dock.innerHTML = '<button class="btn" data-act="show-poster">Poster</button><button class="btn primary" data-act="new-trip">New trip</button>';
       return;
@@ -2621,8 +3504,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       dock.innerHTML = '<button class="btn primary" data-act="new-customer">Add diver</button>';
       return;
     }
-    dock.innerHTML = '<button class="btn" data-act="add-diver">+ Add diver</button>' +
+    dock.classList.add("triple");
+    dock.innerHTML = '<button class="btn" data-act="add-diver">+ Add</button>' +
+      '<button class="btn" data-act="returning-diver">Returning</button>' +
       '<button class="btn primary" data-act="scan-qr">Scan QR</button>';
+    return;
   }
 
   function selectField(label, id, opts, value) {
@@ -2637,9 +3523,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const draft = loadDraft();
     root.innerHTML =
       '<div class="reg">' +
-      '<div class="brand" style="font-weight:800;display:flex;gap:8px;align-items:center"><img src="icons/icon-192.png" alt="" width="32" height="32" style="border-radius:8px"> BoatCheck</div>' +
+      '<div class="brand" style="font-weight:800;display:flex;gap:8px;align-items:center"><img src="icons/logo-emblem.png" alt="" width="36" height="36" style="border-radius:50%;background:#FFFBEF"> BoatCloak</div>' +
       "<h1>Diver self-registration</h1>" +
-      '<p class="muted">Fill this in on your phone, then show the QR code to the crew. Nothing is sent over the network — the QR holds your details.</p>' +
+      '<p class="muted">Fill this in on your phone, then show the QR code to the crew. The QR holds your details on this device. If the shop has shared sync turned on, a pending registration is also sent so crew can add you from the Return Divers list.</p>' +
       '<form id="reg-form">' +
       field("Full name *", "r-name", draft.name) +
       field("Phone", "r-phone", draft.phone, "tel") +
@@ -2708,8 +3594,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return el ? el.value.trim() : "";
   }
   function loadDraft() {
-    try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "{}") || {}; }
-    catch (e) { return {}; }
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY) || localStorage.getItem(DRAFT_KEY_LEGACY) || "{}";
+      return JSON.parse(raw) || {};
+    } catch (e) { return {}; }
   }
   function saveDraft(d) {
     try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch (e) {}
@@ -2745,14 +3633,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function renderPoster() {
     const root = $("#app-poster");
     const url = registerUrl();
-    const shop = state.settings.shopName && state.settings.shopName !== "EXAMPLE Shop" ? state.settings.shopName : "BoatCheck";
+    const shop = C.displayBrand(state.settings.shopName);
     const t = trip();
     let html =
       '<div class="reg"><div class="row"><button class="btn sm" data-act="back-crew">← Crew</button></div>' +
       "<h1 style=\"margin-top:12px\">Registration poster</h1>" +
       '<p class="muted">Print this and put it on the dock or the boat. Divers scan it to open self-registration on their phone, fill in their details, and show the crew the QR the app generates.</p>' +
       field("Public URL where this app is hosted", "poster-url", state.settings.hostedUrl || publicBaseUrl() || "", "url",
-        "Required for the poster QR. Example: https://yourname.github.io/boatcheck/. The link will not work from a file on disk or an email attachment. After the files are hosted (GitHub Pages is a common option), paste that https URL here. This app does not create or push a repository.") +
+        "Required for the poster QR. Example: https://yourname.github.io/boatcloak/. The link will not work from a file on disk or an email attachment. After the files are hosted (GitHub Pages is a common option), paste that https URL here. This app does not create or push a repository.") +
       '<div class="poster-actions"><button class="btn primary" data-act="make-poster">Update poster QR</button><button class="btn" data-act="print-poster">Print</button></div>';
     if (!url) {
       html += '<div class="dup-warn">No public https URL yet. Enter the address after you host the app (GitHub Pages is a common free option), then generate the poster. Enter the address after the app is hosted, then generate the poster.</div>';
@@ -2819,7 +3707,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       selectField("Agency", p + "-ca", C.AGENCIES, d.certAgency) +
       "</div>" +
       field("Cert number", p + "-cn", d.certNumber) +
-      (p === "d" ? activityFormFields(d, p) : "") +
+      (p === "d" || p === "r" ? activityFormFields(d, p) : "") +
       '<div class="field"><label for="' + p + '-nt">Notes</label><textarea id="' + p + '-nt">' +
       esc(d.notes || "") + "</textarea></div>"
     );
@@ -3064,6 +3952,252 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
+
+  function openReturningDiver() {
+    const t = trip();
+    if (!t) {
+      toast("Open a trip first", true);
+      ui.tab = "trips";
+      render();
+      return;
+    }
+    ui.retMulti = false;
+    ui.retSelected = {};
+    const body =
+      '<input class="search" id="ret-search" placeholder="Search by name or phone" autocomplete="off">' +
+      '<div class="row" style="margin:8px 0;gap:8px;align-items:center">' +
+      '<label class="row" style="gap:8px;min-height:44px"><input type="checkbox" id="ret-multi"> Select several</label>' +
+      '<span class="muted right" id="ret-count"></span></div>' +
+      '<div id="ret-list"></div>' +
+      '<div id="ret-multi-bar" hidden>' +
+      '<label class="row" style="gap:8px;min-height:44px"><input type="checkbox" id="ret-checkin-multi"> Add and mark Showed up</label>' +
+      '<button class="btn primary block" type="button" data-act="ret-add-selected">Add selected</button></div>';
+    openSheet("Returning diver", body);
+    const draw = () => {
+      const q = ($("#ret-search") && $("#ret-search").value) || "";
+      const hits = C.searchReturnDivers(state.customers || [], q);
+      $("#ret-count").textContent = hits.length ? hits.length + " saved" : "";
+      if (!hits.length) {
+        $("#ret-list").innerHTML = '<div class="empty"><h3>No matching divers</h3><p>Saved divers appear here. Add people on the Divers tab or by scanning a QR.</p></div>';
+        return;
+      }
+      const multi = !!("#ret-multi" && $("#ret-multi").checked);
+      $("#ret-list").innerHTML = hits.map((hit) => {
+        const c = hit.customer;
+        const already = C.alreadyOnTrip(c, t.divers).length;
+        const last = C.lastActivityFor(c, state.trips);
+        const hist = C.customerHistory(c, state.trips);
+        const checked = !!ui.retSelected[c.id];
+        const meta = (c.phone ? C.phoneDigits(c.phone) : "") +
+          (hist.visitCount ? (c.phone ? " · " : "") + hist.visitCount + (hist.visitCount === 1 ? " visit" : " visits") : "") +
+          (last.activity === "class" ? " · Class" + (last.instructor ? " · " + last.instructor : "") : hist.visitCount ? " · Fun diving" : "");
+        if (multi) {
+          return '<label class="ret-row' + (already ? " disabled" : "") + '">' +
+            '<input type="checkbox" data-act="ret-toggle" data-id="' + esc(c.id) + '"' +
+            (already ? " disabled" : "") + (checked ? " checked" : "") + ">" +
+            '<div><div class="name">' + esc(c.name) + (already ? ' <span class="muted">Already on this trip</span>' : "") +
+            "</div>" + (meta ? '<div class="meta">' + esc(meta) + "</div>" : "") + "</div></label>";
+        }
+        return '<button type="button" class="btn block ret-pick" data-act="ret-pick" data-id="' + esc(c.id) + '"' +
+          (already ? " data-already=\"1\"" : "") + ">" +
+          "<div class=\"name\">" + esc(c.name) + (already ? ' <span class="muted">Already on this trip</span>' : "") +
+          "</div>" + (meta ? '<div class="meta">' + esc(meta) + "</div>" : "") + "</button>";
+      }).join("");
+    };
+    draw();
+    $("#ret-search").addEventListener("input", draw);
+    $("#ret-multi").addEventListener("change", () => {
+      ui.retMulti = $("#ret-multi").checked;
+      if (!ui.retMulti) ui.retSelected = {};
+      $("#ret-multi-bar").hidden = !ui.retMulti;
+      draw();
+    });
+  }
+
+  function openReturningConfirm(customer) {
+    const t = trip();
+    const already = t && C.alreadyOnTrip(customer, t.divers);
+    const draft = C.prepareReturningDiver(customer, state.trips);
+    if (already && already.length) {
+      const on = already[0];
+      const body =
+        '<p style="margin-top:0"><strong>' + esc(customer.name) + "</strong> is already on this trip.</p>" +
+        contactBlock(customer) +
+        '<p class="muted">Attendance: ' + esc(C.ATTENDANCE_LABEL[C.attendanceOf(on)] || on.attendance) + "</p>" +
+        (C.attendanceOf(on) !== "showed_up"
+          ? '<button class="btn primary block" type="button" data-act="ret-mark-showed" data-id="' + esc(on.id) + '">Mark Showed up</button>'
+          : '<p class="muted">Already marked Showed up.</p>');
+      openSheet("Already on this trip", body);
+      return;
+    }
+    const last = C.lastActivityFor(customer, state.trips);
+    const lastLine = last.activity === "class"
+      ? ("Last trip: Class" + (last.instructor ? " · " + last.instructor : "") + (last.course ? " · " + last.course : ""))
+      : "Last trip: Fun diving";
+    const body =
+      '<form id="ret-form">' +
+      '<p class="muted" style="margin-top:0">' + esc(lastLine) + '. Payment starts as Unpaid. You can take payment later on the Pay tab.</p>' +
+      '<label class="row" style="gap:8px;min-height:44px"><input type="checkbox" id="ret-checkin"> Add and mark Showed up</label>' +
+      '<button class="btn primary block" type="submit" style="margin-bottom:14px">Add to trip</button>' +
+      diverFormFields(draft, "r") +
+      "</form>";
+    openSheet("Add " + (customer.name || "returning diver"), body);
+    bindActivityForm("r");
+    $("#ret-form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      const rec = readPersonForm("r");
+      if (!rec.name) { toast("Name is required", true); return; }
+      const diver = C.prepareReturningDiver(customer, state.trips, rec);
+      addDiverToTrip(diver, { checkIn: !!("#ret-checkin" && $("#ret-checkin").checked) });
+    });
+  }
+
+  function addSelectedReturning() {
+    const t = trip();
+    if (!t) return;
+    const ids = Object.keys(ui.retSelected || {}).filter((id) => ui.retSelected[id]);
+    const checkIn = !!("#ret-checkin-multi" && $("#ret-checkin-multi").checked);
+    let added = 0, skipped = 0;
+    ids.forEach((id) => {
+      const c = (state.customers || []).find((x) => x.id === id);
+      if (!c) return;
+      if (C.alreadyOnTrip(c, t.divers).length) { skipped++; return; }
+      const diver = C.prepareReturningDiver(c, state.trips);
+      const res = addDiverToTrip(diver, { checkIn: checkIn, silent: true });
+      if (res && res.ok) added++;
+      else skipped++;
+    });
+    closeModal();
+    render();
+    if (added && skipped) toast("Added " + added + ", skipped " + skipped + " already on this trip");
+    else if (added) toast(checkIn ? "Added " + added + " and marked Showed up" : "Added " + added + " returning diver" + (added === 1 ? "" : "s"));
+    else toast("Those divers are already on this trip", true);
+  }
+
+  function renderSyncCard() {
+    const s = state.settings || {};
+    const st = S ? S.statusOf(state, { syncing: syncing, error: lastSyncError }) : { kind: "local", label: "Local only" };
+    let html = '<div class="card" id="sync-card"><h2>Shared sync</h2>';
+    html += '<p class="muted" style="margin-top:0">Share the same roster and Return Divers database across crew phones through a Google Sheet. Leave this blank to keep data on this phone only. Setup steps are in the backend/SETUP.md file that came with BoatCloak.</p>';
+    html += field("Web app URL", "set-sync-url", s.syncUrl || "", "url", "The URL from Deploy > Web app, ending in /exec");
+    html += field("Crew key", "set-crew-key", s.crewKey || "", "password", "The CREW_KEY from Script Properties. Same key on every crew phone.");
+    html += field("Crew name", "set-crew-name", s.crewName || "", "text", "Stored on each change as who last updated a record, for example Tanaka");
+    html += '<p class="sync-status ' + esc(st.kind) + '" id="sync-status-more">' + esc(st.label) + (s.lastSyncAt && C.formatJST ? "" : "") + "</p>";
+    html += '<div class="wrap">';
+    html += '<button class="btn sm primary" type="button" data-act="save-sync">Save</button>';
+    html += '<button class="btn sm" type="button" data-act="sync-now">Sync now</button>';
+    html += '<button class="btn sm" type="button" data-act="test-sync">Test connection</button>';
+    html += "</div>";
+    html += '<p class="muted" style="margin-top:10px">The Sheet holds divers’ phone, address, and emergency contact. Keep it in the shop owner’s account and do not share it publicly. Phones talk to the script with a text/plain POST so the browser does not need a CORS preflight.</p>';
+    html += "</div>";
+    return html;
+  }
+
+  function saveSyncSettings() {
+    const url = (val("set-sync-url") || "").trim();
+    const key = (val("set-crew-key") != null ? val("set-crew-key") : state.settings.crewKey) || "";
+    const name = (val("set-crew-name") != null ? val("set-crew-name") : state.settings.crewName) || "";
+    state.settings.syncUrl = url;
+    state.settings.crewKey = String(key).trim();
+    state.settings.crewName = String(name).trim();
+    scheduleSave();
+    updateSyncChip();
+    toast(url && state.settings.crewKey ? "Shared sync saved" : "Shared sync cleared — this phone is local-only");
+  }
+
+  function updateSyncChip() {
+    const el = $("#sync-chip");
+    if (!el) return;
+    const st = S ? S.statusOf(state, { syncing: syncing, error: lastSyncError }) : { kind: "local", label: "Local only" };
+    el.hidden = false;
+    el.className = "sync-chip " + st.kind;
+    el.textContent = st.kind === "local" ? "Local" : st.kind === "syncing" ? "Sync" : st.kind === "pending" ? String(st.pending) : st.kind === "error" ? "!" : "✓";
+    el.title = st.label;
+    el.setAttribute("aria-label", st.label);
+    const more = $("#sync-status-more");
+    if (more) {
+      more.className = "sync-status " + st.kind;
+      more.textContent = st.label;
+    }
+  }
+
+  function maybeSync(reason) {
+    if (!S || !S.configured(state.settings)) return;
+    if (reason === "manual" || reason === "open" || reason === "online" || reason === "visible") {
+      return runSyncNow(reason);
+    }
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(() => runSyncNow("change"), 800);
+  }
+
+  async function runSyncNow(reason) {
+    if (!S) return;
+    if (syncing) return;
+    if (!S.configured(state.settings)) {
+      if (reason === "manual") toast("Add the web app URL and crew key under Shared sync", true);
+      return;
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false && reason !== "manual") return;
+    syncing = true;
+    lastSyncError = "";
+    updateSyncChip();
+    try {
+      const res = await S.runSync(state);
+      if (res.ok && res.state && !res.skipped) {
+        state = res.state;
+        prevFlat = S.flatten(state);
+        await persistState(state);
+        render();
+      } else if (!res.ok && !res.skipped) {
+        lastSyncError = res.error || "Sync failed";
+        if (reason === "manual") toast(lastSyncError, true);
+      } else if (res.ok && reason === "manual") {
+        toast("Already up to date");
+      }
+    } catch (err) {
+      lastSyncError = err && err.message ? err.message : String(err);
+      if (reason === "manual") toast(lastSyncError, true);
+    }
+    syncing = false;
+    updateSyncChip();
+  }
+
+  async function testSyncConnection() {
+    saveSyncSettings();
+    if (!S || !S.configured(state.settings)) {
+      toast("Add the web app URL and crew key first", true);
+      return;
+    }
+    try {
+      const data = await S.postPlain(state.settings.syncUrl, { action: "ping" });
+      if (data && data.ok) toast("Connection ok" + (data.app ? " (" + data.app + ")" : ""));
+      else toast((data && data.error) || "No response", true);
+    } catch (err) {
+      toast(err && err.message ? err.message : String(err), true);
+    }
+  }
+
+  async function loadPublicSyncConfig() {
+    try {
+      const r = await fetch("./sync-config.json", { cache: "no-store" });
+      if (!r.ok) return null;
+      const j = await r.json();
+      if (!j || !j.syncUrl) return null;
+      return { syncUrl: j.syncUrl, registerKey: j.registerKey || "" };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function maybeRegisterPending(rec) {
+    const cfg = await loadPublicSyncConfig();
+    if (!cfg) return;
+    try {
+      const res = await S.runRegister(rec, cfg);
+      if (res && res.ok) toast("Sent to the shop as a pending registration");
+    } catch (e) {}
+  }
+
   function openCustomerPicker() {
     const t = trip();
     openSheet("Add from customers", '<input class="search" id="pick-search" placeholder="Search"><div id="pick-list"></div>');
@@ -3186,19 +4320,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     diver.id = diver.id || C.uid("d");
     diver.addedAt = diver.addedAt || C.nowISO();
     let checkinEvent = null;
-    if (diver.addedVia === "qr") {
+    if (diver.addedVia === "qr" || opts.checkIn) {
       const marked = C.applyAttendance(diver, "showed_up");
       diver = marked.diver;
       checkinEvent = marked.event;
     }
     t.divers.push(diver);
-    addLog(C.logEntry("add", diver.name + " added" + (diver.addedVia === "qr" ? " by QR" : "")));
+    const via = diver.addedVia === "qr" ? " by QR" : diver.addedVia === "return" ? " (returning)" : "";
+    addLog(C.logEntry("add", diver.name + " added" + via));
     if (checkinEvent) addLog(checkinEvent);
     scheduleSave();
-    closeModal();
-    render();
-    toast(diver.addedVia === "qr" && diver.attendance === "showed_up" ? diver.name + " showed up" : "Added " + diver.name);
-    return { ok: true, diver: diver };
+    if (!opts.silent) {
+      closeModal();
+      render();
+      toast((diver.addedVia === "qr" || opts.checkIn) && diver.attendance === "showed_up" ? diver.name + " showed up" : "Added " + diver.name);
+    }
+    return { ok: true, diver: diver, checkedIn: !!(checkinEvent || diver.attendance === "showed_up" && opts.checkIn) };
   }
 
   function promptDuplicate(diver, dups) {
@@ -3321,7 +4458,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     stopScanner();
     const decoded = C.decodePayload(text);
     if (!decoded.ok) {
-      toast(decoded.error || "Not a BoatCheck QR", true);
+      toast(decoded.error || "Not a BoatCloak QR", true);
       openScanner();
       return { ok: false, error: decoded.error };
     }
@@ -3375,7 +4512,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (act === "scan-qr") { openScanner(); return; }
     if (act === "scan-photo") { const f = $("#scan-file"); if (f) f.click(); return; }
     if (act === "scan-paste") {
-      const text = prompt("Paste the BoatCheck QR text (starts with BC3:, BC2:, or BC1:)");
+      const text = prompt("Paste the BoatCloak QR text (starts with BC3:, BC2:, or BC1:)");
       if (text) onScanText(text, "paste");
       return;
     }
@@ -3400,7 +4537,29 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       toast("Trip deleted");
       return;
     }
+    if (act === "returning-diver") { openReturningDiver(); return; }
+    if (act === "ret-pick") {
+      const c = (state.customers || []).find((x) => x.id === id);
+      if (c) openReturningConfirm(c);
+      return;
+    }
+    if (act === "ret-toggle") {
+      if (btn.disabled) return;
+      ui.retSelected = ui.retSelected || {};
+      ui.retSelected[id] = !ui.retSelected[id];
+      return;
+    }
+    if (act === "ret-add-selected") { addSelectedReturning(); return; }
+    if (act === "ret-mark-showed") {
+      setAttendance(id, "showed_up");
+      closeModal();
+      return;
+    }
+    if (act === "save-sync") { saveSyncSettings(); render(); return; }
+    if (act === "sync-now") { runSyncNow("manual"); return; }
+    if (act === "test-sync") { testSyncConnection(); return; }
     if (act === "pay-filter") { ui.payFilter = btn.dataset.filter; render(); return; }
+
     if (act === "cust-sort") { ui.custSort = btn.dataset.sort || "name"; render(); return; }
     if (act === "merge-customers") {
       const keepId = id;
@@ -3422,12 +4581,12 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return;
     }
     if (act === "export-divers-json") {
-      downloadText("boatcheck-divers-" + C.todayJST() + ".json", C.exportDiversDatabase(state), "application/json");
+      downloadText(C.exportFilename("divers"), C.exportDiversDatabase(state), "application/json");
       toast("Divers database exported");
       return;
     }
     if (act === "export-divers-csv") {
-      downloadText("boatcheck-divers-" + C.todayJST() + ".csv", C.diversDatabaseCSV(state, state.settings.currency), "text/csv");
+      downloadText(C.exportFilename("divers-csv"), C.diversDatabaseCSV(state, state.settings.currency), "text/csv");
       toast("Divers CSV exported");
       return;
     }
@@ -3479,7 +4638,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return;
     }
     if (act === "export-json") {
-      downloadText("boatcheck-backup-" + C.todayJST() + ".json", C.exportState(state), "application/json");
+      downloadText(C.exportFilename("backup"), C.exportState(state), "application/json");
       toast("Backup downloaded");
       return;
     }
@@ -3504,7 +4663,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return;
     }
     if (act === "wipe") {
-      if (!confirm("Erase all BoatCheck data on this device?")) return;
+      if (!confirm("Erase all BoatCloak data on this device?")) return;
       state = C.emptyState();
       scheduleSave();
       render();
@@ -3532,7 +4691,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (act === "download-reg-qr") {
       const cnv = $("#reg-qr");
       if (!cnv) return;
-      downloadUrl("boatcheck-registration.png", cnv.toDataURL("image/png"));
+      downloadUrl(C.exportFilename("registration"), cnv.toDataURL("image/png"));
       return;
     }
     if (act === "back-to-form") {
@@ -3546,7 +4705,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (e.target.id === "set-shop") {
       state.settings.shopName = e.target.value;
       scheduleSave();
-      $("#brand-name").textContent = state.settings.shopName || "BoatCheck";
+      $("#brand-name").textContent = C.displayBrand(state.settings.shopName);
     }
     if (e.target.id === "set-cur") {
       state.settings.currency = e.target.value;
@@ -3555,6 +4714,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (e.target.id === "set-hc") {
       setContrast(e.target.checked);
       render();
+    }
+    if (e.target.id === "set-sync-url" || e.target.id === "set-crew-key" || e.target.id === "set-crew-name") {
+      /* saved explicitly via Save to avoid typing a key into lastSync accidentally */
     }
     if (e.target.id === "import-file" && e.target.files && e.target.files[0]) {
       const f = e.target.files[0];
@@ -3634,11 +4796,24 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         if (!rec.name) { toast("Name is required", true); return; }
         saveDraft(rec);
         showRegQr(rec);
+        maybeRegisterPending(rec);
       }
     });
+    if (S) prevFlat = S.flatten(state);
+    if (lastMigration.migrated) await persistState(state);
     render();
     registerSW();
     updateSwStatus();
+    maybeSync("open");
+    if (!syncInterval) {
+      syncInterval = setInterval(() => {
+        if (typeof document === "undefined" || document.visibilityState === "visible") maybeSync("interval");
+      }, 30000);
+    }
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") maybeSync("visible");
+    });
+    window.addEventListener("online", () => maybeSync("online"));
   }
 
   function registerSW() {
@@ -3665,14 +4840,26 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
-  window.BoatCheck = {
+  const api = {
     version: APP_VERSION,
+    name: C.APP_NAME || "BoatCloak",
     core: C,
+    sync: S,
     getState: () => state,
-    setState: (s) => { state = s; return scheduleSave(); },
+    setState: (s) => { state = s; prevFlat = S ? S.flatten(state) : prevFlat; return scheduleSave(); },
     loadExample: () => {
       state = C.exampleState();
+      prevFlat = S ? S.flatten(C.emptyState()) : prevFlat;
       return scheduleSave().then(() => { render(); return state; });
+    },
+    lastMigration: () => lastMigration,
+    syncNow: () => runSyncNow("manual"),
+    openReturningDiver: () => openReturningDiver(),
+    addReturning: (customerId, opts) => {
+      const c = (state.customers || []).find((x) => x.id === customerId);
+      if (!c) return { ok: false, error: "Not found" };
+      const d = C.prepareReturningDiver(c, state.trips, (opts && opts.overrides) || {});
+      return addDiverToTrip(d, opts || {});
     },
     render,
     encodePayload: C.encodePayload,
@@ -3707,6 +4894,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     openScanner,
     ui,
   };
+  window.BoatCloak = api;
+  window.BoatCheck = api;
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
   else init();

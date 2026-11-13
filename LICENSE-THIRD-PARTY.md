@@ -1,4 +1,4 @@
-# Third-party licenses bundled in BoatCheck
+# Third-party licenses bundled in BoatCloak
 
 These libraries are vendored (copied into the app) so it can run offline with no CDN.
 
