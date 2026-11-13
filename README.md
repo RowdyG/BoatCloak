@@ -1,4 +1,4 @@
-# BoatCloak — Dive Boat Tracker v1.4.1
+# BoatCloak — Dive Boat Tracker v1.4.2
 
 BoatCloak is an installable, offline-first app for dive boat trips. Crew keep a diver roster and a simple show-up check-in (not checked in / showed up / optional no-show), a paid vs unpaid check, and a Return Divers database for repeat customers, including a **Trusted** tag for experienced divers. Divers can open a public sign-up link — or a per-trip poster QR — and request a spot. Those requests arrive in the crew **Requests** inbox, where you can approve, waitlist, or decline them.
 
@@ -37,7 +37,7 @@ High-contrast (sun) mode is the sun icon in the header, or the toggle under More
 
 ## Updating from BoatCheck
 
-If a phone already has BoatCheck data, BoatCloak reads the old IndexedDB (`boatcheck`) and localStorage (`boatcheck-state`) keys and copies that data into the new BoatCloak keys. Nothing is deleted from the old store. Backups exported as BoatCheck JSON still import. The service worker cache name is new (`boatcloak-v1.4.1`), so an installed phone will pick up this version on the next visit over https.
+If a phone already has BoatCheck data, BoatCloak reads the old IndexedDB (`boatcheck`) and localStorage (`boatcheck-state`) keys and copies that data into the new BoatCloak keys. Nothing is deleted from the old store. Backups exported as BoatCheck JSON still import. The service worker cache name is new (`boatcloak-v1.4.2`), so an installed phone will pick up this version on the next visit over https.
 
 ## Registration posters
 
@@ -70,7 +70,7 @@ Without a backend, there is no online request. The public page tells the diver t
 
 ## Using it on the boat
 
-1. Create a trip: date, boat name, site(s), divemaster. Optionally set a departure time, capacity, public price or notes, and mark the trip open for online sign-up.
+1. Create a trip: date, time, boat or trip name, sites, divemaster, price, meeting note, capacity, and whether it is open for online sign-up. You can edit any trip later from the **Trips** tab (each card has an **Edit** button), or by tapping the trip name or the pencil on the banner at the top of the roster. Save or Cancel in the editor. Delete asks for confirmation and keeps the trip id so existing poster links still work; the roster and requests stay linked. If you lower capacity below the number of divers already approved, the app warns you and asks you to confirm — it does not automatically decline anyone.
 2. Add divers by hand, from the Divers tab, or with **Returning**. A name and address are required. Each diver also has a phone number and emergency contact (name + phone). Phone numbers are tap-to-call. Every add is saved to the Return Divers database. Crew can mark a diver as **Trusted** and add a short note (for example, “Deep cert, 200+ dives”). That tag is crew-only and never appears on the public page or posters.
 3. To check in a repeat customer, tap **Returning** on the Roster or Check-in tab. Search by name or phone (type-ahead, including close spellings). Pick a diver to review their saved phone, address, emergency contact, and last activity (fun diving or class with instructor and course), then add them. Payment starts as **Unpaid**. You can add and mark **Showed up** in the same step. If they are already on this trip, the app will not add a second copy. Turn on **Select several** to add more than one returning diver at once.
 4. On each trip, mark a diver as **Fun diving** or **Class**. For a class, pick (or add) the instructor and optionally the course (Open Water, Advanced, Rescue, or free text). The roster groups by fun dive vs class/instructor, and the banner shows a count such as `Fun 8 / Class: Smith 4, Lee 2`. Divers can also pick fun dive or class (and an instructor) on the self-registration form.

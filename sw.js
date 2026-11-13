@@ -1,5 +1,5 @@
 /* BoatCloak service worker — cache-first, no network required after first load */
-const VERSION = "boatcloak-v1.4.1";
+const VERSION = "boatcloak-v1.4.2";
 const PRECACHE = [
   "./",
   "./index.html",
