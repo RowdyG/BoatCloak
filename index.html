@@ -2073,7 +2073,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       {
         app: APP_NAME,
         type: "divers",
-        appVersion: "1.4.3",
+        appVersion: "1.4.4",
         schema: SCHEMA,
         exportedAt: nowISO(),
         currency: (st.settings && st.settings.currency) || "JPY",
@@ -2648,7 +2648,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     out.schema = SCHEMA;
     out.exportedAt = nowISO();
     out.app = APP_NAME;
-    out.appVersion = "1.4.3";
+    out.appVersion = "1.4.4";
     return JSON.stringify(out, null, 2);
   }
 
@@ -3809,6 +3809,52 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return !!(s.syncUrl && String(s.syncUrl).trim());
   }
 
+  function openTripsStorage() {
+    try {
+      if (typeof localStorage !== "undefined" && localStorage) return localStorage;
+    } catch (e) {}
+    const g = typeof globalThis !== "undefined" ? globalThis : {};
+    if (!g.__bcOpenTripsStore) g.__bcOpenTripsStore = {};
+    const mem = g.__bcOpenTripsStore;
+    return {
+      getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; },
+      setItem: function (k, v) { mem[k] = String(v); },
+      removeItem: function (k) { delete mem[k]; },
+    };
+  }
+
+  function openTripsCacheKey(settings) {
+    const url = String((settings && settings.syncUrl) || "").replace(/\/+$/, "");
+    return "boatcloak-open-trips:" + url;
+  }
+
+  function readCachedOpenTrips(settings) {
+    try {
+      const raw = openTripsStorage().getItem(openTripsCacheKey(settings));
+      if (!raw) return null;
+      const obj = JSON.parse(raw);
+      if (!obj || !Array.isArray(obj.trips)) return null;
+      const trips = obj.trips
+        .filter((t) => t && t.id && !(C && C.openTripHasPii && C.openTripHasPii(t)))
+        .map((t) => normalizeTrip(Object.assign({}, t)));
+      return { trips: trips, savedAt: obj.savedAt || 0 };
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function writeCachedOpenTrips(settings, trips) {
+    try {
+      const clean = (trips || [])
+        .filter((t) => t && t.id && !(C && C.openTripHasPii && C.openTripHasPii(t)))
+        .map((t) => normalizeTrip(Object.assign({}, t)));
+      openTripsStorage().setItem(openTripsCacheKey(settings), JSON.stringify({ trips: clean, savedAt: Date.now() }));
+      return clean;
+    } catch (e) {
+      return trips || [];
+    }
+  }
+
   function listOpenTrips(settings, opts) {
     opts = opts || {};
     const url = (settings && settings.syncUrl) || "";
@@ -3819,6 +3865,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "Could not load trips", trips: [] };
       const trips = Array.isArray(data.trips) ? data.trips : [];
       const clean = trips.filter((t) => t && t.id && !(C && C.openTripHasPii && C.openTripHasPii(t))).map((t) => normalizeTrip(Object.assign({}, t)));
+      writeCachedOpenTrips(settings, clean);
       return { ok: true, trips: clean, response: data };
     });
   }
@@ -3886,6 +3933,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     runSync: runSync,
     runRegister: runRegister,
     listOpenTrips: listOpenTrips,
+    readCachedOpenTrips: readCachedOpenTrips,
+    writeCachedOpenTrips: writeCachedOpenTrips,
+    openTripsCacheKey: openTripsCacheKey,
     submitSignup: submitSignup,
     checkSignupStatus: checkSignupStatus,
     publicConfigured: publicConfigured,
@@ -3897,11 +3947,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 </script>
 <script>
-/* BoatCloak v1.4.3 — crew + self-registration PWA (offline-first, optional shared sync) */
+/* BoatCloak v1.4.4 — crew + self-registration PWA (offline-first, optional shared sync) */
 (function () {
   "use strict";
   const C = window.BCCore;
-  const APP_VERSION = "1.4.3";
+  const APP_VERSION = "1.4.4";
   const IDB_NAME = "boatcloak";
   const IDB_NAME_LEGACY = "boatcheck";
   const IDB_STORE = "kv";
@@ -4734,7 +4784,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div class="about-brand"><img src="icons/logo-emblem.png" alt="" width="48" height="48">' +
       '<div><div class="about-name">BoatCloak</div><div class="muted">v' + APP_VERSION + "</div></div></div>";
     html += "<p>BoatCloak is the crew app for dive boat trips. It keeps the diver roster and a simple show-up check-in, a paid or unpaid check, and a Return Divers database so repeat customers are easy to add next time. Crew can edit a trip from the Trips list, or by tapping the trip banner (or the pencil) at the top of the roster. Crew can mark experienced people with a Trusted tag (and an optional short note, such as “Deep cert, 200+ dives”).</p>";
-    html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them. Trip dates and times are shown in Japan Standard Time. The app will not create a second request, roster seat, or Return Divers record for someone who is already on that trip. Phone numbers are formatted automatically for Japan and US numbers.</p>";
+    html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them. Trip dates and times are shown in Japan Standard Time. The app will not create a second request, roster seat, or Return Divers record for someone who is already on that trip. Phone numbers are formatted automatically for Japan and US numbers. Notes on the diver and crew forms are optional. The public trip list opens from a short cache so it stays quick, then refreshes in the background.</p>";
     html += "<p>The app works offline first. Optional shared sync uses a Google Sheet and Apps Script so several crew phones share the same data; changes wait in an outbox until they can be sent. When the app is hosted, the web app URL is filled in from the site config — crew only type the crew key. Sun mode (the sun icon) is a high-contrast display for use in direct sunlight. You can export and import the Return Divers list as CSV or JSON, and export a full backup.</p>";
     html += "<p>Diver data stays in the shop’s private Google Sheet and on crew devices. The public page shows only trip details — not names, phones, or Trusted tags.</p>";
     html += '<p class="muted">Android: Chrome menu → Add to Home screen.<br>iPhone/iPad: Safari Share → Add to Home Screen.<br>Poster QR links only work once the app is hosted at a public https URL (GitHub Pages works). Opening this file from disk or email will not give divers a working link.</p>';
@@ -4800,6 +4850,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const deep = regUi.deepLink || {};
       if (deep.message) body += '<div class="offline-signup-note" id="reg-deeplink-note">' + esc(deep.message) + "</div>";
       else body += '<p class="muted">Choose a trip to request a spot. The crew will approve, waitlist, or decline your request.</p>';
+      if (regUi.tripsUpdating) body += '<p class="muted" id="reg-trips-updating">Updating…</p>';
       body += '<div id="reg-trip-list">';
       if (!regUi.trips || !regUi.trips.length) {
         body += '<div class="offline-signup-note">There are no open trips right now. Ask the crew, or try again later.</div>';
@@ -4816,7 +4867,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         });
       }
       body += "</div>";
-      body += '<div class="field"><label for="r-req-note">Note for the crew (optional)</label><textarea id="r-req-note">' + esc((regUi.diver && regUi.diver.notes) || "") + "</textarea></div>";
+      body += '<div class="field"><label for="r-req-note">Note for the crew (optional)</label><textarea id="r-req-note" placeholder="Optional">' + esc((regUi.diver && regUi.diver.notes) || "") + "</textarea></div>";
       body += '<button type="button" class="btn primary block" id="reg-send-request" data-act="reg-send-request"' + (regUi.sending || !(regUi.trips && regUi.trips.length) ? " disabled" : "") + '>' + (regUi.sending ? "Sending…" : "Request this trip") + "</button>";
       body += '<p><button type="button" class="btn ghost" data-act="reg-back-form">← Edit my details</button></p>';
     } else if (step === "done") {
@@ -4862,7 +4913,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         selectField("Agency", "r-ca", C.AGENCIES, draft.certAgency) +
         "</div>" +
         field("Cert number", "r-cn", draft.certNumber) +
-        '<div class="field"><label for="r-nt">Notes</label><textarea id="r-nt">' + esc(draft.notes || "") + "</textarea></div>" +
+        textareaField("Notes (optional)", "r-nt", draft.notes) +
         (regUi.config
           ? '<div class="reg-actions"><button type="submit" class="btn primary block" id="reg-continue">Continue to trip list</button></div>'
           : (waiting
@@ -4920,6 +4971,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
   }
 
+  function applyRegisterTripList(trips, wanted, opts) {
+    opts = opts || {};
+    regUi.trips = trips || [];
+    regUi.tripsUpdating = !!opts.updating;
+    const deep = C.resolveRegisterTrip(regUi.trips, wanted);
+    regUi.deepLink = deep;
+    if (wanted) regUi.selectedTripId = deep.selectedId || "";
+    else if (!(regUi.selectedTripId && (regUi.trips || []).some((t) => t.id === regUi.selectedTripId))) {
+      regUi.selectedTripId = deep.selectedId || "";
+    }
+    regUi.step = "trips";
+  }
+
   async function afterRegForm(rec) {
     if (!requirePersonOrToast(rec, "r-ad")) return;
     saveDraft(rec);
@@ -4932,21 +4996,31 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       toast("Online sign-up is not set up on this site", true);
       return;
     }
-    toast("Loading open trips…");
+    const wanted = requestedTripId();
+    regUi.wantedTripId = wanted;
+    regUi.diver = rec;
+    const cached = S.readCachedOpenTrips ? S.readCachedOpenTrips(cfg) : null;
+    const cachedTrips = cached && cached.trips && cached.trips.length ? cached.trips : null;
+    if (cachedTrips) {
+      applyRegisterTripList(cachedTrips, wanted, { updating: true });
+      renderRegister();
+    } else {
+      toast("Loading open trips…");
+    }
     try {
       const listed = await S.listOpenTrips(cfg);
-      regUi.diver = rec;
-      regUi.trips = (listed && listed.ok && listed.trips) || [];
-      const wanted = requestedTripId();
-      regUi.wantedTripId = wanted;
-      const deep = C.resolveRegisterTrip(regUi.trips, wanted);
-      regUi.deepLink = deep;
-      regUi.selectedTripId = deep.selectedId || "";
-      regUi.step = "trips";
+      const trips = (listed && listed.ok && listed.trips) || [];
+      applyRegisterTripList(trips, wanted, { updating: false });
       const t = document.getElementById("toast");
       if (t) t.classList.remove("show");
       renderRegister();
     } catch (err) {
+      if (cachedTrips) {
+        applyRegisterTripList(cachedTrips, wanted, { updating: false });
+        renderRegister();
+        toast(err && err.message ? err.message : "Could not refresh trips", true);
+        return;
+      }
       toast(err && err.message ? err.message : "Could not load trips", true);
       regUi.diver = rec;
       regUi.step = "form";
@@ -5144,8 +5218,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       "</div>" +
       field("Cert number", p + "-cn", d.certNumber) +
       (p === "d" || p === "r" ? activityFormFields(d, p) : "") +
-      '<div class="field"><label for="' + p + '-nt">Notes</label><textarea id="' + p + '-nt">' +
-      esc(d.notes || "") + "</textarea></div>" +
+      textareaField("Notes (optional)", p + "-nt", d.notes) +
       trustedFormFields(d, p)
     );
   }
