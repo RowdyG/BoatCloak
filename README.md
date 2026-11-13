@@ -1,4 +1,4 @@
-# BoatCloak — Dive Boat Tracker v1.4.4
+# BoatCloak — Dive Boat Tracker v1.4.5
 
 BoatCloak is an installable, offline-first app for dive boat trips. Crew keep a diver roster and a simple show-up check-in (not checked in / showed up / optional no-show), a paid vs unpaid check, and a Return Divers database for repeat customers, including a **Trusted** tag for experienced divers. Divers can open a public sign-up link — or a per-trip poster QR — and request a spot. Those requests arrive in the crew **Requests** inbox, where you can approve, waitlist, or decline them.
 
@@ -9,6 +9,8 @@ Works on Android and iPhone/iPad once installed to the home screen. Built for us
 This release is a rename of the app formerly called BoatCheck. Existing data is carried over automatically (see “Updating from BoatCheck”).
 
 v1.4.3 fixes public sign-up when Google Sheets has turned trip dates and times into Date values (the live list was showing raw ISO strings such as `2026-11-14T15:00:00.000Z` and `1899-12-29T23:00:00.000Z`). Dates now display as `yyyy-MM-dd` and times as `HH:mm` in Japan Standard Time, on both the diver page and crew phones. The app also stops duplicate sign-up requests and roster/Return Divers records for the same person, and it auto-formats Japan and US phone numbers as you type.
+
+v1.4.5 is a hotfix for public sign-up matching. A 10-digit phone and an 11-digit Japanese mobile that were different numbers were treated as the same person, so a new request could be rejected as a duplicate of someone else’s and never saved. Matching now uses canonical phone digits only (+81/81 with a leading 0, +1/1, and a missing Japanese trunk 0 on 070/080/090/050 numbers). Name-only matches are never used. Crew approvals synced to the Sheet are stamped with the crew name, not “register”.
 
 v1.4.4 makes Notes clearly optional on the diver registration form and the crew add/edit diver form. The label is “Notes (optional)” with an “Optional” placeholder. A name and address are still required; notes are not. This release also speeds up the public open-trips list: the script no longer rebuilds that list on every read, counts roster seats in one pass, and caches the public JSON for 45 seconds. The register page shows the last trip list immediately with an “Updating…” note, then replaces it with the fresh list.
 
@@ -41,7 +43,7 @@ High-contrast (sun) mode is the sun icon in the header, or the toggle under More
 
 ## Updating from BoatCheck
 
-If a phone already has BoatCheck data, BoatCloak reads the old IndexedDB (`boatcheck`) and localStorage (`boatcheck-state`) keys and copies that data into the new BoatCloak keys. Nothing is deleted from the old store. Backups exported as BoatCheck JSON still import. The service worker cache name is new (`boatcloak-v1.4.4`), so an installed phone will pick up this version on the next visit over https.
+If a phone already has BoatCheck data, BoatCloak reads the old IndexedDB (`boatcheck`) and localStorage (`boatcheck-state`) keys and copies that data into the new BoatCloak keys. Nothing is deleted from the old store. Backups exported as BoatCheck JSON still import. The service worker cache name is new (`boatcloak-v1.4.5`), so an installed phone will pick up this version on the next visit over https.
 
 ## Registration posters
 
