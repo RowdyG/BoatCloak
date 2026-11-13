@@ -88,7 +88,16 @@ html.hc .header { background: #000; border-bottom-width: 2px; }
 .header .brand { font-weight: 800; letter-spacing: .02em; font-size: 1.05rem; display: flex; align-items: center; gap: 8px; }
 .header .brand .mark { width: 32px; height: 32px; border-radius: 50%; background: #FFFBEF; display: grid; place-items: center; overflow: hidden; flex-shrink: 0; }
 .header .brand .mark img { width: 32px; height: 32px; display: block; }
-.header .trip-line { font-size: .75rem; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 42vw; }
+.trip-line-row { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.header .trip-line {
+  font-size: .75rem; color: var(--muted); font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; max-width: 36vw;
+  text-align: left; padding: 0; min-height: 28px; background: none; border: 0;
+}
+.header .trip-line.has-trip { text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+#btn-edit-trip { width: 40px; height: 40px; flex-shrink: 0; }
+.banner-row { align-items: center; gap: 8px; }
+.banner-row .grow { min-width: 0; }
 .sync-chip {
   min-width: 44px; height: 32px; padding: 0 10px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--surface); color: var(--muted);
@@ -613,7 +622,10 @@ html.hc .open-trip-card.selected { box-shadow: none; border-width: 3px; }
           <span class="mark"><img src="icons/logo-emblem.png" width="32" height="32" alt=""></span>
           <span id="brand-name">BoatCloak</span>
         </div>
-        <div class="trip-line" id="trip-line">No trip open</div>
+        <div class="trip-line-row">
+          <button type="button" class="trip-line" id="trip-line" data-act="edit-current-trip" aria-label="Current trip">No trip open</button>
+          <button type="button" class="icon-btn" id="btn-edit-trip" data-act="edit-current-trip" aria-label="Edit trip" title="Edit trip" hidden>✎</button>
+        </div>
       </div>
       <button class="sync-chip local" id="sync-chip" data-act="sync-now" title="Shared sync" aria-label="Local only">Local</button>
       <button class="icon-btn" id="btn-contrast" aria-label="High contrast" aria-pressed="false" title="High-contrast (sun) mode">☀</button>
@@ -1734,7 +1746,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       {
         app: APP_NAME,
         type: "divers",
-        appVersion: "1.4.1",
+        appVersion: "1.4.2",
         schema: SCHEMA,
         exportedAt: nowISO(),
         currency: (st.settings && st.settings.currency) || "JPY",
@@ -2303,7 +2315,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     out.schema = SCHEMA;
     out.exportedAt = nowISO();
     out.app = APP_NAME;
-    out.appVersion = "1.4.1";
+    out.appVersion = "1.4.2";
     return JSON.stringify(out, null, 2);
   }
 
@@ -2614,9 +2626,56 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return findDuplicates(person, divers || []);
   }
 
+  function liveTrips(trips) {
+    return (trips || []).filter((t) => t && !t.deleted);
+  }
+
   function currentTrip(state) {
     if (!state || !state.trips) return null;
-    return state.trips.find((t) => t.id === state.currentTripId) || null;
+    const live = liveTrips(state.trips);
+    return live.find((t) => t.id === state.currentTripId) || null;
+  }
+
+  function applyTripFields(trip, fields) {
+    if (!trip) return trip;
+    const id = trip.id;
+    const createdAt = trip.createdAt;
+    const divers = trip.divers;
+    const log = trip.log;
+    Object.assign(trip, fields || {});
+    trip.id = id;
+    if (createdAt) trip.createdAt = createdAt;
+    trip.divers = divers;
+    trip.log = log;
+    trip.updatedAt = nowISO();
+    return trip;
+  }
+
+  function capacityShrinkWarning(trip, newCapacity) {
+    const cap = Number(newCapacity) || 0;
+    if (cap <= 0) return { ok: true, used: rosterHeadcount(trip && trip.divers), cap: cap };
+    const used = rosterHeadcount(trip && trip.divers);
+    if (used <= cap) return { ok: true, used: used, cap: cap };
+    return {
+      ok: false,
+      used: used,
+      cap: cap,
+      message: "This trip already has " + used + " diver" + (used === 1 ? "" : "s") +
+        " on the roster, but the new capacity is " + cap +
+        ". Saving will overbook the trip. Divers already on the roster and pending requests are not declined. Save anyway?",
+    };
+  }
+
+  function tombstoneTrip(trips, tripId) {
+    const list = trips ? trips.slice() : [];
+    const t = list.find((x) => x && x.id === tripId);
+    if (!t) return { ok: false, error: "Trip not found", trips: list };
+    const id = t.id;
+    t.deleted = true;
+    t.openForSignup = false;
+    t.updatedAt = nowISO();
+    t.id = id;
+    return { ok: true, trips: list, trip: t, id: id };
   }
 
   return {
@@ -2736,6 +2795,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     exampleState,
     filterPayments,
     currentTrip,
+    tombstoneTrip,
+    capacityShrinkWarning,
+    applyTripFields,
+    liveTrips,
     searchReturnDivers,
     lastActivityFor,
     prepareReturningDiver,
@@ -3474,11 +3537,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 </script>
 <script>
-/* BoatCloak v1.4.1 — crew + self-registration PWA (offline-first, optional shared sync) */
+/* BoatCloak v1.4.2 — crew + self-registration PWA (offline-first, optional shared sync) */
 (function () {
   "use strict";
   const C = window.BCCore;
-  const APP_VERSION = "1.4.1";
+  const APP_VERSION = "1.4.2";
   const IDB_NAME = "boatcloak";
   const IDB_NAME_LEGACY = "boatcheck";
   const IDB_STORE = "kv";
@@ -3778,7 +3841,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const shop = C.displayBrand(state.settings.shopName);
     $("#brand-name").textContent = shop;
     updateSyncChip();
-    $("#trip-line").textContent = t ? ((t.date || "") + " · " + (t.boatName || "Untitled trip")) : "No trip open";
+    const tripLine = $("#trip-line");
+    tripLine.textContent = t ? ((t.date || "") + " · " + (t.boatName || "Untitled trip")) : "No trip open";
+    tripLine.classList.toggle("has-trip", !!t);
+    const editBtn = $("#btn-edit-trip");
+    if (editBtn) editBtn.hidden = !t;
     const hcBtn = $("#btn-contrast");
     if (hcBtn) hcBtn.setAttribute("aria-pressed", state.settings.highContrast ? "true" : "false");
     renderBanner();
@@ -3814,12 +3881,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     el.className = "banner" + (ac.notCheckedIn > 0 ? " warn" : ac.total ? " ok" : "");
     const ay = C.activityCount(t.divers);
     el.innerHTML =
-      '<div><div class="count" id="banner-count">' + esc(text) + '</div>' +
+      '<div class="row banner-row" data-act="edit-current-trip" title="Edit trip">' +
+      '<div class="grow"><div class="count" id="banner-count">' + esc(text) + "</div>" +
       '<div class="sub" id="banner-activity">' + esc(C.activityBanner(ay)) + "</div>" +
       '<div class="sub">' +
       esc(t.sites || "No site set") +
       (t.divemaster ? " · DM " + esc(t.divemaster) : "") +
-      "</div></div>";
+      '</div></div>' +
+      '<button type="button" class="icon-btn" data-act="edit-current-trip" aria-label="Edit trip" title="Edit trip">✎</button></div>';
   }
 
   function diverMeta(d) {
@@ -4114,7 +4183,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function renderTripsView() {
     let html = '<button class="btn primary block" data-act="new-trip" style="margin-bottom:10px">New trip</button>';
-    const trips = (state.trips || []).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
+    const trips = C.liveTrips(state.trips).slice().sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt)));
     if (!trips.length) {
       html += '<div class="empty"><h3>No trips yet</h3><p>Create a trip with the date, boat, site, and divemaster, then add divers.</p></div>';
       return html;
@@ -4132,6 +4201,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         (t.openForSignup ? (C.isOpenUpcoming(t) ? ' · <span class="signup-open">Open for sign-up' + seatsLabel(t) + '</span>' : ' · Sign-up closed') : '') +
         "</div></div>" +
         '<div class="wrap"><button class="btn sm primary" data-act="open-trip" data-id="' + esc(t.id) + '">Open</button>' +
+        '<button class="btn sm" data-act="edit-trip" data-id="' + esc(t.id) + '">Edit</button>' +
         '<button class="btn sm" data-act="show-trip-poster" data-id="' + esc(t.id) + '">Poster</button></div></article>';
     });
     return html;
@@ -4303,7 +4373,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div class="card" id="about-card"><h2>About</h2>';
     html += '<div class="about-brand"><img src="icons/logo-emblem.png" alt="" width="48" height="48">' +
       '<div><div class="about-name">BoatCloak</div><div class="muted">v' + APP_VERSION + "</div></div></div>";
-    html += "<p>BoatCloak is the crew app for dive boat trips. It keeps the diver roster and a simple show-up check-in, a paid or unpaid check, and a Return Divers database so repeat customers are easy to add next time. Crew can mark experienced people with a Trusted tag (and an optional short note, such as “Deep cert, 200+ dives”).</p>";
+    html += "<p>BoatCloak is the crew app for dive boat trips. It keeps the diver roster and a simple show-up check-in, a paid or unpaid check, and a Return Divers database so repeat customers are easy to add next time. Crew can edit a trip from the Trips list, or by tapping the trip banner (or the pencil) at the top of the roster. Crew can mark experienced people with a Trusted tag (and an optional short note, such as “Deep cert, 200+ dives”).</p>";
     html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them.</p>";
     html += "<p>The app works offline first. Optional shared sync uses a Google Sheet and Apps Script so several crew phones share the same data; changes wait in an outbox until they can be sent. When the app is hosted, the web app URL is filled in from the site config — crew only type the crew key. Sun mode (the sun icon) is a high-contrast display for use in direct sunlight. You can export and import the Return Divers list as CSV or JSON, and export a full backup.</p>";
     html += "<p>Diver data stays in the shop’s private Google Sheet and on crew devices. The public page shows only trip details — not names, phones, or Trusted tags.</p>";
@@ -4940,47 +5010,63 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
+  function readTripForm() {
+    return {
+      date: val("t-date") || C.todayJST(),
+      boatName: val("t-boat"),
+      sites: val("t-sites"),
+      divemaster: val("t-dm"),
+      notes: ($("#t-notes") && $("#t-notes").value) || "",
+      departTime: val("t-depart"),
+      capacity: Number(val("t-cap")) || 0,
+      priceNote: val("t-price"),
+      publicNotes: ($("#t-public") && $("#t-public").value) || "",
+      openForSignup: !!( $("#t-open") && $("#t-open").checked ),
+    };
+  }
+
   function openTripEditor(existing) {
-    const t = existing ? C.clone(existing) : C.emptyTrip();
-    const isNew = !existing;
+    const source = existing && existing.id ? (state.trips || []).find((x) => x.id === existing.id) || existing : existing;
+    const t = source ? C.clone(source) : C.emptyTrip();
+    const isNew = !source;
     const body =
-      '<form id="trip-form">' +
+      '<form id="trip-form" novalidate>' +
       field("Date", "t-date", t.date, "date") +
-      field("Boat name", "t-boat", t.boatName) +
+      field("Boat / trip name", "t-boat", t.boatName) +
       field("Site(s)", "t-sites", t.sites, "text", "e.g. Maeda Point, Residual Rocks") +
-      field("Divemaster", "t-dm", t.divemaster) +
-      field("Departure time", "t-depart", t.departTime || "", "time", "Optional. Shown on the public sign-up list.") +
-      field("Capacity", "t-cap", t.capacity ? String(t.capacity) : "", "number", "Leave blank for no limit. Enforced when you approve a request.") +
+      field("Divemaster / instructor", "t-dm", t.divemaster) +
+      field("Departure time", "t-depart", t.departTime || "", "time", "Shown on the public sign-up list and on the trip poster.") +
+      field("Capacity / seats", "t-cap", t.capacity ? String(t.capacity) : "", "number", "Leave blank for no limit. Enforced when you approve a request.") +
       field("Price (public)", "t-price", t.priceNote || "", "text", "Optional, e.g. ¥12,000 per diver") +
-      '<div class="field"><label for="t-public">Public notes</label><textarea id="t-public">' + esc(t.publicNotes || "") + '</textarea><div class="hint">Shown to divers on the sign-up page. Do not include anyone\'s personal details.</div></div>' +
-      '<label class="row" style="gap:10px;min-height:44px"><input type="checkbox" id="t-open"' +
-      (t.openForSignup ? " checked" : "") + '> Open this trip for online sign-up</label>' +
+      '<div class="field"><label for="t-public">Meeting note (public)</label><textarea id="t-public">' + esc(t.publicNotes || "") + '</textarea><div class="hint">Shown to divers on the sign-up page and poster. Do not include anyone\'s personal details.</div></div>' +
+      '<label class="row" style="gap:10px;min-height:48px"><input type="checkbox" id="t-open"' +
+      (t.openForSignup ? " checked" : "") + "> Open this trip for online sign-up</label>" +
       '<div class="field"><label for="t-notes">Crew notes (not published)</label><textarea id="t-notes">' + esc(t.notes || "") + "</textarea></div>" +
-      '<button type="submit" class="btn primary block">' + (isNew ? "Create trip" : "Save trip") + "</button></form>";
+      '<button type="submit" class="btn primary block" id="trip-save">' + (isNew ? "Create trip" : "Save") + "</button>" +
+      '<button type="button" class="btn block" data-act="close-modal">Cancel</button>' +
+      (isNew ? "" : '<button type="button" class="btn danger block" data-act="delete-trip" data-id="' + esc(source.id) + '">Delete trip</button>') +
+      "</form>";
     openSheet(isNew ? "New trip" : "Edit trip", body);
     $("#trip-form").addEventListener("submit", (e) => {
       e.preventDefault();
-      const rec = {
-        date: val("t-date") || C.todayJST(),
-        boatName: val("t-boat"),
-        sites: val("t-sites"),
-        divemaster: val("t-dm"),
-        notes: ($("#t-notes") && $("#t-notes").value) || "",
-        departTime: val("t-depart"),
-        capacity: Number(val("t-cap")) || 0,
-        priceNote: val("t-price"),
-        publicNotes: ($("#t-public") && $("#t-public").value) || "",
-        openForSignup: !!( $("#t-open") && $("#t-open").checked ),
-      };
+      const rec = readTripForm();
       if (isNew) {
         const nt = C.emptyTrip(rec);
+        nt.log = nt.log || [];
         nt.log.push(C.logEntry("info", "Trip created"));
         state.trips.push(nt);
         state.currentTripId = nt.id;
         ui.tab = "roster";
         toast("Trip created");
       } else {
-        Object.assign(existing, rec);
+        const target = (state.trips || []).find((x) => x.id === source.id);
+        if (!target || target.deleted) { toast("Trip not found", true); return; }
+        const warn = C.capacityShrinkWarning(target, rec.capacity);
+        if (!warn.ok && !confirm(warn.message)) return;
+        const idBefore = target.id;
+        C.applyTripFields(target, rec);
+        target.id = idBefore;
+        if (target.log) target.log.push(C.logEntry("info", "Trip details updated"));
         toast("Trip saved");
       }
       scheduleSave();
@@ -5525,7 +5611,15 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return;
     }
     if (act === "new-trip") { openTripEditor(); return; }
-    if (act === "edit-trip") { if (trip()) openTripEditor(trip()); return; }
+    if (act === "edit-current-trip") {
+      if (trip()) openTripEditor(trip());
+      return;
+    }
+    if (act === "edit-trip") {
+      const t = id ? (state.trips || []).find((x) => x.id === id && !x.deleted) : trip();
+      if (t) openTripEditor(t);
+      return;
+    }
     if (act === "open-trip") {
       state.currentTripId = id;
       ui.tab = "roster";
@@ -5535,12 +5629,19 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return;
     }
     if (act === "delete-trip") {
-      const t = trip();
-      if (!t) return;
-      if (!confirm("Delete this trip? Customer records are kept.")) return;
-      state.trips = state.trips.filter((x) => x.id !== t.id);
-      state.currentTripId = state.trips[0] ? state.trips[0].id : null;
+      const t = (id && (state.trips || []).find((x) => x.id === id)) || trip();
+      if (!t || t.deleted) return;
+      if (!confirm("Delete this trip? The roster for this trip is removed from the live list. Customer records and sign-up requests stay, and the trip id is kept so posters do not change. This cannot be undone.")) return;
+      const res = C.tombstoneTrip(state.trips, t.id);
+      if (!res.ok) { toast(res.error || "Could not delete this trip", true); return; }
+      state.trips = res.trips;
+      if (state.currentTripId === t.id) {
+        const next = C.liveTrips(state.trips)[0];
+        state.currentTripId = next ? next.id : null;
+      }
       scheduleSave();
+      closeModal();
+      ui.tab = "trips";
       render();
       toast("Trip deleted");
       return;
