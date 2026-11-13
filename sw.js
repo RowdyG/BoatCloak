@@ -1,5 +1,5 @@
-/* BoatCheck service worker — cache-first, no network required after first load */
-const VERSION = "boatcheck-v1.2.0";
+/* BoatCloak service worker — cache-first, no network required after first load */
+const VERSION = "boatcloak-v1.3.0";
 const PRECACHE = [
   "./",
   "./index.html",
@@ -9,7 +9,8 @@ const PRECACHE = [
   "./icons/icon-maskable-192.png",
   "./icons/icon-maskable-512.png",
   "./icons/apple-touch-icon.png",
-  "./icons/favicon.png"
+  "./icons/favicon.png",
+  "./icons/logo-emblem.png"
 ];
 
 self.addEventListener("install", (event) => {

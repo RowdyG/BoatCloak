@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "BoatCheck — Dive Boat Tracker",
-  "short_name": "BoatCheck",
+  "name": "BoatCloak — Dive Boat Tracker",
+  "short_name": "BoatCloak",
   "description": "Offline dive-boat roster, attendance check-in, paid/unpaid check, and QR registration.",
   "start_url": "./index.html",
   "scope": "./",
