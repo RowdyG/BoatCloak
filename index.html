@@ -852,6 +852,86 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return g.year + "-" + g.month + "-" + g.day;
   }
 
+  function isValidDate(d) {
+    return d instanceof Date && !isNaN(d.getTime());
+  }
+
+  function partsInTimeZone(d, timeZone) {
+    const fmt = new Intl.DateTimeFormat("en-GB", {
+      timeZone: timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    const out = { year: "", month: "", day: "", hour: "", minute: "" };
+    fmt.formatToParts(d).forEach((p) => {
+      if (p.type in out) out[p.type] = p.value;
+    });
+    return out;
+  }
+
+  function formatYmdJST(d) {
+    if (!isValidDate(d)) return "";
+    const p = partsInTimeZone(d, "Asia/Tokyo");
+    return p.year + "-" + p.month + "-" + p.day;
+  }
+
+  function formatHmJST(d) {
+    if (!isValidDate(d)) return "";
+    const p = partsInTimeZone(d, "Asia/Tokyo");
+    return p.hour + ":" + p.minute;
+  }
+
+  function isSheetsTimeEpoch(d) {
+    if (!isValidDate(d)) return false;
+    return d.getUTCFullYear() <= 1900;
+  }
+
+  function parseSheetDate(value) {
+    if (isValidDate(value)) return value;
+    if (value == null || value === "") return null;
+    const s = String(value).trim();
+    if (!s) return null;
+    const d = new Date(s);
+    return isValidDate(d) ? d : null;
+  }
+
+  /* Sheets often stores a trip date as a Date (midnight JST → ISO like 2026-11-14T15:00:00.000Z)
+     and a departTime as a time serial (1899-12-29T23:00:00.000Z for 08:00 JST). */
+  function normalizeTripDate(value) {
+    if (value == null || value === "") return "";
+    if (isValidDate(value)) {
+      return isSheetsTimeEpoch(value) ? "" : formatYmdJST(value);
+    }
+    const s = String(value).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = parseSheetDate(s);
+    if (d && !isSheetsTimeEpoch(d)) return formatYmdJST(d);
+    return s;
+  }
+
+  function normalizeDepartTime(value) {
+    if (value == null || value === "") return "";
+    if (isValidDate(value)) return formatHmJST(value);
+    const s = String(value).trim();
+    const hm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (hm) return String(Number(hm[1])).padStart(2, "0") + ":" + hm[2];
+    const d = parseSheetDate(s);
+    if (d) return formatHmJST(d);
+    return s;
+  }
+
+  function normalizeTripRecord(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    if (obj.date != null && obj.date !== "") obj.date = normalizeTripDate(obj.date);
+    if (obj.departTime != null && obj.departTime !== "") obj.departTime = normalizeDepartTime(obj.departTime);
+    if (obj.tripDate != null && obj.tripDate !== "") obj.tripDate = normalizeTripDate(obj.tripDate);
+    return obj;
+  }
+
   function shiftDateJST(ymd, days) {
     const base = ymd || todayJST();
     const parts = String(base).split("-").map(Number);
@@ -906,7 +986,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!Array.isArray(o.importedVisits)) o.importedVisits = [];
     o.trusted = o.trusted === true || o.trusted === 1 || o.trusted === "true" || o.trusted === "1" || o.trusted === "yes";
     o.trustedNote = String(o.trustedNote || "").slice(0, 200);
-    return stripGear(o);
+    return applyStoredPhones(stripGear(o));
   }
 
 
@@ -1018,11 +1098,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       },
       partial || {}
     );
-    return migrateActivity(migrateAttendance(stripGear(o)));
+    return applyStoredPhones(migrateActivity(migrateAttendance(stripGear(o))));
   }
 
   function emptyTrip(partial) {
-    return Object.assign(
+    const t = Object.assign(
       {
         id: uid("t"),
         date: todayJST(),
@@ -1041,6 +1121,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       },
       partial || {}
     );
+    return normalizeTripRecord(t);
   }
 
   function emptyState() {
@@ -1487,19 +1568,265 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       .replace(/[\s\-().+]/g, "");
   }
 
+  /* Format diver/emergency phones for JP and US. Leave DSN and unknown values as typed. */
+  var JP_AREA_5 = {
+    "01267": 1, "01397": 1, "01456": 1, "01457": 1, "01466": 1,
+    "01547": 1, "01586": 1, "01632": 1, "01634": 1, "01635": 1,
+    "01648": 1, "01654": 1, "01655": 1, "01656": 1, "01658": 1,
+    "04992": 1, "04994": 1, "04996": 1, "04998": 1,
+    "05979": 1, "07468": 1, "08396": 1, "08477": 1, "08512": 1,
+    "08514": 1, "08699": 1, "09496": 1, "09802": 1, "09912": 1,
+    "09913": 1, "09969": 1
+  };
+  var JP_AREA_4 = {
+    "0120": 1, "0123": 1, "0124": 1, "0125": 1, "0126": 1,
+    "0133": 1, "0134": 1, "0135": 1, "0136": 1, "0137": 1, "0138": 1, "0139": 1,
+    "0142": 1, "0143": 1, "0144": 1, "0145": 1, "0146": 1,
+    "0152": 1, "0153": 1, "0154": 1, "0155": 1, "0156": 1, "0157": 1, "0158": 1,
+    "0162": 1, "0163": 1, "0164": 1, "0165": 1, "0166": 1, "0167": 1,
+    "0172": 1, "0173": 1, "0174": 1, "0175": 1, "0176": 1, "0178": 1,
+    "0182": 1, "0183": 1, "0184": 1, "0185": 1, "0186": 1, "0187": 1,
+    "0191": 1, "0192": 1, "0193": 1, "0194": 1, "0195": 1, "0198": 1,
+    "0220": 1, "0223": 1, "0224": 1, "0225": 1, "0226": 1, "0228": 1, "0229": 1,
+    "0233": 1, "0234": 1, "0235": 1, "0237": 1, "0238": 1,
+    "0240": 1, "0241": 1, "0242": 1, "0243": 1, "0244": 1, "0246": 1, "0247": 1, "0248": 1,
+    "0250": 1, "0254": 1, "0255": 1, "0256": 1, "0257": 1, "0258": 1, "0259": 1,
+    "0260": 1, "0261": 1, "0263": 1, "0264": 1, "0265": 1, "0266": 1, "0267": 1, "0268": 1, "0269": 1,
+    "0270": 1, "0274": 1, "0276": 1, "0277": 1, "0278": 1, "0279": 1,
+    "0280": 1, "0282": 1, "0283": 1, "0284": 1, "0285": 1, "0287": 1, "0288": 1, "0289": 1,
+    "0291": 1, "0293": 1, "0294": 1, "0295": 1, "0296": 1, "0297": 1, "0299": 1,
+    "0422": 1, "0428": 1, "0436": 1, "0438": 1, "0439": 1,
+    "0460": 1, "0463": 1, "0465": 1, "0466": 1, "0467": 1,
+    "0470": 1, "0475": 1, "0476": 1, "0478": 1, "0479": 1, "0480": 1, "0493": 1, "0495": 1, "0496": 1,
+    "0531": 1, "0532": 1, "0533": 1, "0536": 1, "0537": 1, "0538": 1, "0539": 1,
+    "0544": 1, "0545": 1, "0547": 1, "0548": 1, "0550": 1, "0554": 1, "0555": 1, "0556": 1, "0557": 1, "0558": 1,
+    "0581": 1, "0584": 1, "0585": 1, "0586": 1, "0587": 1,
+    "0594": 1, "0595": 1, "0596": 1, "0597": 1, "0598": 1, "0599": 1,
+    "0721": 1, "0725": 1, "0735": 1, "0736": 1, "0737": 1, "0738": 1, "0739": 1,
+    "0740": 1, "0742": 1, "0743": 1, "0744": 1, "0745": 1, "0746": 1, "0747": 1, "0748": 1, "0749": 1,
+    "0761": 1, "0763": 1, "0765": 1, "0766": 1, "0767": 1, "0768": 1,
+    "0770": 1, "0771": 1, "0772": 1, "0773": 1, "0774": 1, "0776": 1, "0778": 1, "0779": 1,
+    "0790": 1, "0791": 1, "0794": 1, "0795": 1, "0796": 1, "0797": 1, "0798": 1, "0799": 1,
+    "0820": 1, "0823": 1, "0824": 1, "0826": 1, "0827": 1, "0829": 1,
+    "0833": 1, "0834": 1, "0835": 1, "0836": 1, "0837": 1, "0838": 1,
+    "0845": 1, "0846": 1, "0847": 1, "0848": 1,
+    "0851": 1, "0852": 1, "0853": 1, "0854": 1, "0855": 1, "0856": 1, "0857": 1, "0858": 1, "0859": 1,
+    "0863": 1, "0865": 1, "0866": 1, "0867": 1, "0868": 1, "0869": 1,
+    "0875": 1, "0877": 1, "0879": 1, "0880": 1, "0883": 1, "0884": 1, "0885": 1, "0887": 1, "0889": 1,
+    "0892": 1, "0893": 1, "0894": 1, "0895": 1, "0896": 1, "0897": 1, "0898": 1,
+    "0920": 1, "0930": 1, "0940": 1, "0942": 1, "0943": 1, "0944": 1, "0946": 1, "0947": 1, "0948": 1, "0949": 1,
+    "0950": 1, "0952": 1, "0954": 1, "0955": 1, "0956": 1, "0957": 1, "0959": 1,
+    "0964": 1, "0965": 1, "0966": 1, "0967": 1, "0968": 1, "0969": 1,
+    "0972": 1, "0973": 1, "0974": 1, "0977": 1, "0978": 1, "0979": 1,
+    "0980": 1, "0982": 1, "0983": 1, "0984": 1, "0985": 1, "0986": 1, "0987": 1,
+    "0993": 1, "0994": 1, "0995": 1, "0996": 1, "0997": 1, "0998": 1,
+    "0160": 1, "0180": 1, "0130": 1, "0140": 1, "0570": 1, "0800": 1, "0990": 1
+  };
+  var JP_AREA_3 = {
+    "011": 1, "013": 1, "014": 1, "015": 1, "016": 1, "017": 1, "018": 1, "019": 1,
+    "022": 1, "023": 1, "024": 1, "025": 1, "026": 1, "027": 1, "028": 1, "029": 1,
+    "042": 1, "043": 1, "044": 1, "045": 1, "046": 1, "047": 1, "048": 1, "049": 1,
+    "052": 1, "053": 1, "054": 1, "055": 1, "058": 1, "059": 1,
+    "072": 1, "073": 1, "075": 1, "076": 1, "077": 1, "078": 1, "079": 1,
+    "082": 1, "083": 1, "084": 1, "085": 1, "086": 1, "087": 1, "088": 1, "089": 1,
+    "092": 1, "093": 1, "094": 1, "095": 1, "096": 1, "097": 1, "098": 1, "099": 1
+  };
+  var JP_SPECIAL_4 = { "0120": 1, "0800": 1, "0570": 1, "0990": 1, "0160": 1, "0180": 1, "0130": 1, "0140": 1 };
+
+  function groupDigits(d, sizes, sep) {
+    sep = sep || "-";
+    const parts = [];
+    let i = 0;
+    for (let s = 0; s < sizes.length && i < d.length; s++) {
+      parts.push(d.slice(i, i + sizes[s]));
+      i += sizes[s];
+    }
+    if (i < d.length) parts.push(d.slice(i));
+    return parts.filter(function (p) { return p; }).join(sep);
+  }
+
+  function jpLandlineGroups(d) {
+    if (JP_AREA_5[d.slice(0, 5)]) return [5, 1, 4];
+    if (JP_SPECIAL_4[d.slice(0, 4)]) return [4, 3, 3];
+    if (JP_AREA_4[d.slice(0, 4)]) return [4, 2, 4];
+    if (d.slice(0, 2) === "03" || d.slice(0, 2) === "06") return [2, 4, 4];
+    if (JP_AREA_3[d.slice(0, 3)]) return [3, 3, 4];
+    return [4, 2, 4];
+  }
+
+  function formatJpNational(d, partial) {
+    if (!d) return "";
+    if (/^(070|080|090|050)/.test(d)) return groupDigits(d, [3, 4, 4], "-");
+    if (d.length < 10 && !partial) return "";
+    if (d.length < 10) return d;
+    return groupDigits(d, jpLandlineGroups(d), "-");
+  }
+
+  function jpNationalFromIntl(rest) {
+    if (!rest) return "";
+    if (rest.charAt(0) === "0") return rest;
+    return "0" + rest;
+  }
+
+  function formatUsNational(d, partial) {
+    if (d.length <= 3) return d;
+    if (d.length <= 6) return "(" + d.slice(0, 3) + ") " + d.slice(3);
+    return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6, 10);
+  }
+
+  function hasPhoneLetters(s) {
+    return /[a-zA-Z]/.test(s);
+  }
+
+  function formatPhone(value, opts) {
+    opts = opts || {};
+    const raw = value == null ? "" : String(value);
+    const s = opts.partial ? raw : raw.trim();
+    if (!s) return opts.partial ? raw : "";
+    if (hasPhoneLetters(s)) return opts.partial ? raw : s;
+    const hadPlus = /^\s*\+/.test(s);
+    const d = phoneDigits(s);
+    if (!d) return s;
+
+    // Japan international: +81 or leading 81 + national number
+    const jpIntl = (hadPlus && d.indexOf("81") === 0 && d.length >= 2) ||
+      (!hadPlus && d.indexOf("81") === 0 && d.length >= 11);
+    if (jpIntl) {
+      const rest = jpNationalFromIntl(d.slice(2));
+      if (d.length <= 2) return "+81";
+      if (opts.partial && rest.length < 3) return "+81 " + (rest.charAt(0) === "0" ? rest.slice(1) : rest);
+      const local = formatJpNational(rest, opts.partial);
+      if (!local) return opts.partial ? s : raw.trim();
+      const body = local.charAt(0) === "0" ? local.slice(1) : local;
+      return body ? "+81 " + body : "+81";
+    }
+
+    // US international: +1 or 1 + 10-digit NANP
+    const usIntl = (hadPlus && d.charAt(0) === "1") ||
+      (d.length === 11 && d.charAt(0) === "1" && d.charAt(1) >= "2" && d.charAt(1) <= "9");
+    if (usIntl && (d.length >= 11 || hadPlus)) {
+      const rest = d.charAt(0) === "1" ? d.slice(1) : d;
+      if (!opts.partial && rest.length !== 10) return s;
+      if (opts.partial && rest.length < 10) {
+        if (!hadPlus && d.length < 11) return s;
+        if (rest.length === 0) return "+1";
+        return "+1 " + formatUsNational(rest, true);
+      }
+      if (rest.length === 10 && rest.charAt(0) >= "2" && rest.charAt(0) <= "9") {
+        return "+1 " + formatUsNational(rest, false);
+      }
+      return s;
+    }
+
+    // Japan mobile / IP phone (11 digits, 070/080/090/050)
+    if (/^(070|080|090|050)/.test(d) && d.length <= 11) {
+      if (!opts.partial && d.length !== 11) return s;
+      return formatJpNational(d, true);
+    }
+
+    // Japan landline / special (10 digits starting with 0)
+    if (d.charAt(0) === "0" && d.length === 10) {
+      return formatJpNational(d, false);
+    }
+
+    // US 10 digits, not starting with 0 or 1
+    if (d.length === 10 && d.charAt(0) >= "2" && d.charAt(0) <= "9") {
+      return formatUsNational(d, false);
+    }
+
+    return opts.partial ? raw : s;
+  }
+
+  function canonicalPhoneDigits(value) {
+    let d = phoneDigits(value);
+    if (!d) return "";
+    if (d.indexOf("81") === 0 && d.length >= 11) {
+      d = jpNationalFromIntl(d.slice(2));
+    } else if (d.length === 11 && d.charAt(0) === "1" && d.charAt(1) >= "2" && d.charAt(1) <= "9") {
+      d = d.slice(1);
+    }
+    return d;
+  }
+
+  function applyStoredPhones(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    if (obj.phone != null && String(obj.phone) !== "") obj.phone = formatPhone(obj.phone);
+    if (obj.emergencyPhone != null && String(obj.emergencyPhone) !== "") obj.emergencyPhone = formatPhone(obj.emergencyPhone);
+    return obj;
+  }
+
+  function formatPhoneInput(el, opts) {
+    opts = opts || {};
+    if (!el) return "";
+    const partial = opts.partial !== false;
+    const old = String(el.value == null ? "" : el.value);
+    const start = typeof el.selectionStart === "number" ? el.selectionStart : old.length;
+    const formatted = formatPhone(old, { partial: partial });
+    if (formatted === old) return formatted;
+    const digitsBefore = phoneDigits(old.slice(0, start)).length;
+    const atEnd = start >= old.length;
+    el.value = formatted;
+    if (typeof el.setSelectionRange === "function") {
+      let pos = formatted.length;
+      if (!atEnd) {
+        if (digitsBefore === 0) {
+          pos = start === 0 ? 0 : (formatted.charAt(0) === "+" ? 1 : 0);
+        } else {
+          let seen = 0;
+          pos = formatted.length;
+          for (let i = 0; i < formatted.length; i++) {
+            if (formatted.charAt(i) >= "0" && formatted.charAt(i) <= "9") {
+              seen++;
+              if (seen >= digitsBefore) { pos = i + 1; break; }
+            }
+          }
+        }
+      }
+      try { el.setSelectionRange(pos, pos); } catch (err) {}
+    }
+    return formatted;
+  }
+
+  function phonesMatch(a, b) {
+    const pa = canonicalPhoneDigits(a);
+    const pb = canonicalPhoneDigits(b);
+    if (!pa || !pb) return false;
+    if (pa === pb && pa.length >= 7) return true;
+    if ((pa.endsWith(pb) || pb.endsWith(pa)) && Math.min(pa.length, pb.length) >= 8) return true;
+    return false;
+  }
+
   function samePerson(a, b) {
     if (!a || !b) return false;
     if (a.customerId && b.customerId && a.customerId === b.customerId) return true;
+    if (a.id && b.id && a.id === b.id && String(a.id).indexOf("c-") === 0) return true;
+    if (phonesMatch(a.phone, b.phone)) return true;
     const na = normKey(a.name);
     const nb = normKey(b.name);
-    const pa = normKey(a.phone);
-    const pb = normKey(b.phone);
     const ca = normKey(a.certNumber);
     const cb = normKey(b.certNumber);
-    if (na && nb && na === nb && pa && pb && pa === pb) return true;
+    if (na && nb && na === nb && ca && cb && ca === cb && ca.length >= 4) return true;
     if (ca && cb && ca === cb && ca.length >= 4) return true;
-    if (na && nb && na === nb && pa && pb && (pa.endsWith(pb) || pb.endsWith(pa)) && Math.min(pa.length, pb.length) >= 8) return true;
     return false;
+  }
+
+  function findExistingCustomer(customers, person) {
+    const list = customers || [];
+    if (!person) return null;
+    const id = person.customerId || (String(person.id || "").indexOf("c-") === 0 ? person.id : "");
+    if (id) {
+      const byId = list.find((c) => c && c.id === id);
+      if (byId) return byId;
+    }
+    const byPhone = list.find((c) => c && phonesMatch(c.phone, person.phone));
+    if (byPhone) return byPhone;
+    const na = normKey(person.name);
+    const ca = normKey(person.certNumber);
+    if (na && ca && ca.length >= 4) {
+      const byCert = list.find((c) => c && normKey(c.name) === na && normKey(c.certNumber) === ca);
+      if (byCert) return byCert;
+    }
+    return list.find((c) => samePerson(c, person)) || null;
   }
 
   function findDuplicates(diver, list) {
@@ -1560,7 +1887,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       address: src.address,
       notes: src.notes,
     });
-    const hit = list.find((c) => (asCust.id && c.id === asCust.id) || samePerson(c, asCust));
+    const hit = findExistingCustomer(list, asCust) || findExistingCustomer(list, src);
     if (hit) {
       ["name", "phone", "address", "certLevel", "certAgency", "certNumber", "emergencyName", "emergencyPhone", "notes"].forEach((k) => {
         if (asCust[k]) hit[k] = asCust[k];
@@ -1746,7 +2073,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       {
         app: APP_NAME,
         type: "divers",
-        appVersion: "1.4.2",
+        appVersion: "1.4.3",
         schema: SCHEMA,
         exportedAt: nowISO(),
         currency: (st.settings && st.settings.currency) || "JPY",
@@ -1822,7 +2149,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       const h = customerHistory(c, st.trips);
       const last = h.appearances.length ? h.appearances[h.appearances.length - 1] : null;
       lines.push(csvRow([
-        c.name, c.phone, c.address, c.emergencyName, c.emergencyPhone,
+        c.name, formatPhone(c.phone), c.address, c.emergencyName, formatPhone(c.emergencyPhone),
         c.certAgency, c.certLevel, c.certNumber, c.notes, isTrustedFlag(c.trusted) ? "yes" : "", c.trustedNote || "",
         h.visitCount, h.noShowCount, h.rosteredCount, h.firstVisit, h.lastVisit,
         last && last.activity ? (last.activity === "class" ? "Class" : "Fun diving") : "",
@@ -1952,13 +2279,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       lines.push(
         csvRow([
           d.name,
-          d.phone,
+          formatPhone(d.phone),
           d.certLevel,
           d.certAgency,
           d.certNumber,
           d.address,
           d.emergencyName,
-          d.emergencyPhone,
+          formatPhone(d.emergencyPhone),
           d.notes,
           activitySummary(d),
           normalizeActivity(d).instructor,
@@ -1987,7 +2314,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     (trip.divers || []).forEach((d) => {
       const p = normalizePayment(d.payment);
       const out = Math.max(0, p.amount - p.collected);
-      lines.push(csvRow([d.name, d.phone, PAY_LABEL[p.status] || p.status, p.amount, p.collected, out, p.method, p.note]));
+      lines.push(csvRow([d.name, formatPhone(d.phone), PAY_LABEL[p.status] || p.status, p.amount, p.collected, out, p.method, p.note]));
     });
     const t = paymentTotals(trip.divers);
     lines.push("");
@@ -2045,7 +2372,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     o.deleted = !!o.deleted;
     o.overbooked = !!o.overbooked;
     o.capacity = o.capacity; // ignore
-    return o;
+    return applyStoredPhones(normalizeTripRecord(o));
   }
 
   function rosterHeadcount(divers) {
@@ -2061,18 +2388,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function isOpenUpcoming(trip, today) {
     if (!trip || trip.deleted || !trip.openForSignup) return false;
-    const day = today || todayJST();
-    return String(trip.date || "") >= String(day);
+    const day = normalizeTripDate(today || todayJST()) || todayJST();
+    const tripDay = normalizeTripDate(trip.date);
+    if (!tripDay) return false;
+    return tripDay >= day;
   }
 
   function sanitizeOpenTrip(trip, today) {
     const left = seatsLeft(trip);
     return {
       id: trip && trip.id || "",
-      date: trip && trip.date || "",
+      date: normalizeTripDate(trip && trip.date) || "",
       boatName: trip && trip.boatName || "",
       sites: trip && trip.sites || "",
-      departTime: trip && trip.departTime || "",
+      departTime: normalizeDepartTime(trip && trip.departTime) || "",
       capacity: Number(trip && trip.capacity) || 0,
       seatsLeft: left,
       unlimited: left === null,
@@ -2083,7 +2412,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function sanitizeOpenTripList(trips, today) {
-    const day = today || todayJST();
+    const day = normalizeTripDate(today || todayJST()) || todayJST();
     return (trips || [])
       .filter((t) => isOpenUpcoming(t, day))
       .map((t) => sanitizeOpenTrip(t, day))
@@ -2100,9 +2429,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return {
       ref: signup && signup.ref || "",
       status: signup && signup.status || "",
-      tripDate: (trip && trip.date) || (signup && signup.tripDate) || "",
+      tripDate: normalizeTripDate((trip && trip.date) || (signup && signup.tripDate) || ""),
       boatName: (trip && trip.boatName) || (signup && signup.boatName) || "",
-      departTime: (trip && trip.departTime) || (signup && signup.departTime) || "",
+      departTime: normalizeDepartTime((trip && trip.departTime) || (signup && signup.departTime) || ""),
     };
   }
 
@@ -2129,58 +2458,62 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const trip = (st.trips || []).find((t) => t.id === su.tripId);
     if (decision === "approved") {
       if (!trip) return { ok: false, error: "Trip not found" };
-      if (su.status === "approved" && alreadyOnTrip(su, trip.divers).length) {
-        return { ok: true, state: st, signup: su, alreadyOnTrip: true };
-      }
       const already = alreadyOnTrip(su, trip.divers);
       if (!already.length) {
         const left = seatsLeft(trip);
         if (left !== null && left <= 0 && !opts.overbook) {
           return { ok: false, needOverbook: true, error: "This trip is full. Approve anyway as an overbook?" };
         }
-        const up = upsertCustomer(st.customers, {
-          id: su.customerId || undefined,
-          name: su.name,
-          phone: su.phone,
-          address: su.address,
-          certLevel: su.certLevel,
-          certAgency: su.certAgency,
-          certNumber: su.certNumber,
-          emergencyName: su.emergencyName,
-          emergencyPhone: su.emergencyPhone,
-          notes: su.notes,
-        });
-        st.customers = up.customers;
-        const diver = emptyDiver({
-          name: su.name,
-          phone: su.phone,
-          address: su.address,
-          certLevel: su.certLevel,
-          certAgency: su.certAgency,
-          certNumber: su.certNumber,
-          emergencyName: su.emergencyName,
-          emergencyPhone: su.emergencyPhone,
-          notes: su.notes,
-          activity: su.activity,
-          instructor: su.instructor,
-          course: su.course,
-          customerId: up.customer.id,
-          addedVia: "signup",
-          payment: emptyPayment({ status: "unpaid" }),
-          attendance: "not_checked_in",
-          checkedInAt: null,
-        });
-        trip.divers = (trip.divers || []).concat([diver]);
-        trip.log = trip.log || [];
-        trip.log.push(logEntry("add", diver.name + " approved from sign-up" + (opts.overbook ? " (overbook)" : "")));
-        su.customerId = up.customer.id;
-        su.overbooked = !!(opts.overbook && left !== null && left <= 0);
+      }
+      const up = upsertCustomer(st.customers, {
+        id: su.customerId || undefined,
+        name: su.name,
+        phone: su.phone,
+        address: su.address,
+        certLevel: su.certLevel,
+        certAgency: su.certAgency,
+        certNumber: su.certNumber,
+        emergencyName: su.emergencyName,
+        emergencyPhone: su.emergencyPhone,
+        notes: su.notes,
+      });
+      st.customers = up.customers;
+      su.customerId = up.customer.id;
+      if (already.length) {
+        if (already[0] && !already[0].customerId) already[0].customerId = up.customer.id;
         su.status = "approved";
         su.updatedAt = nowISO();
         su.updatedBy = opts.crewName || su.updatedBy || "";
-        return { ok: true, state: st, signup: su, diver: diver, returning: !up.created, overbooked: su.overbooked };
+        return { ok: true, state: st, signup: su, alreadyOnTrip: true, returning: !up.created };
       }
-      su.customerId = already[0].customerId || su.customerId;
+      const left = seatsLeft(trip);
+      const diver = emptyDiver({
+        name: su.name,
+        phone: su.phone,
+        address: su.address,
+        certLevel: su.certLevel,
+        certAgency: su.certAgency,
+        certNumber: su.certNumber,
+        emergencyName: su.emergencyName,
+        emergencyPhone: su.emergencyPhone,
+        notes: su.notes,
+        activity: su.activity,
+        instructor: su.instructor,
+        course: su.course,
+        customerId: up.customer.id,
+        addedVia: "signup",
+        payment: emptyPayment({ status: "unpaid" }),
+        attendance: "not_checked_in",
+        checkedInAt: null,
+      });
+      trip.divers = (trip.divers || []).concat([diver]);
+      trip.log = trip.log || [];
+      trip.log.push(logEntry("add", diver.name + " approved from sign-up" + (opts.overbook ? " (overbook)" : "")));
+      su.overbooked = !!(opts.overbook && left !== null && left <= 0);
+      su.status = "approved";
+      su.updatedAt = nowISO();
+      su.updatedBy = opts.crewName || su.updatedBy || "";
+      return { ok: true, state: st, signup: su, diver: diver, returning: !up.created, overbooked: su.overbooked };
     }
     su.status = decision;
     su.updatedAt = nowISO();
@@ -2315,7 +2648,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     out.schema = SCHEMA;
     out.exportedAt = nowISO();
     out.app = APP_NAME;
-    out.appVersion = "1.4.2";
+    out.appVersion = "1.4.3";
     return JSON.stringify(out, null, 2);
   }
 
@@ -2736,6 +3069,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     nowISO,
     formatJST,
     todayJST,
+    formatYmdJST,
+    formatHmJST,
+    normalizeTripDate,
+    normalizeDepartTime,
+    normalizeTripRecord,
     checksum,
     emptyCustomer,
     emptyPayment,
@@ -2768,8 +3106,14 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     encodeLegacyV1,
     decodePayload,
     telHref,
+    formatPhone,
+    formatPhoneInput,
+    canonicalPhoneDigits,
+    applyStoredPhones,
     stripGear,
     samePerson,
+    phonesMatch,
+    findExistingCustomer,
     findDuplicates,
     customerFromDiver,
     diverFromCustomer,
@@ -2864,6 +3208,20 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (v === true || v === 1) return true;
     const s = String(v || "").toLowerCase();
     return s === "true" || s === "1" || s === "yes";
+  }
+
+  function normalizeTrip(obj) {
+    if (!obj || typeof obj !== "object") return obj;
+    if (C && C.normalizeTripRecord) return C.normalizeTripRecord(obj);
+    return obj;
+  }
+
+  function normalizePublicTimes(data) {
+    if (!data || typeof data !== "object") return data;
+    if (C && C.normalizeTripDate && data.tripDate != null) data.tripDate = C.normalizeTripDate(data.tripDate);
+    if (C && C.normalizeDepartTime && data.departTime != null) data.departTime = C.normalizeDepartTime(data.departTime);
+    if (C && C.normalizeTripDate && data.date != null) data.date = C.normalizeTripDate(data.date);
+    return data;
   }
 
   function indexById(list) {
@@ -3212,7 +3570,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       visitByCust[id].push({
         id: v.id,
         tripId: v.tripId,
-        date: v.date,
+        date: (C && C.normalizeTripDate) ? C.normalizeTripDate(v.date) : v.date,
         boatName: v.boatName,
         sites: v.sites,
         attendance: v.attendance,
@@ -3460,7 +3818,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return go.then((data) => {
       if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "Could not load trips", trips: [] };
       const trips = Array.isArray(data.trips) ? data.trips : [];
-      const clean = trips.filter((t) => t && t.id && !(C && C.openTripHasPii && C.openTripHasPii(t)));
+      const clean = trips.filter((t) => t && t.id && !(C && C.openTripHasPii && C.openTripHasPii(t))).map((t) => normalizeTrip(Object.assign({}, t)));
       return { ok: true, trips: clean, response: data };
     });
   }
@@ -3493,7 +3851,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const go = opts.post ? opts.post(req) : postPlain(url, req, opts.fetch);
     return go.then((data) => {
       if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "Could not send the request", response: data };
-      return { ok: true, id: data.id, ref: data.ref, status: data.status, tripDate: data.tripDate, boatName: data.boatName, departTime: data.departTime, duplicate: !!data.duplicate, response: data };
+      const times = normalizePublicTimes({ tripDate: data.tripDate, departTime: data.departTime });
+      return { ok: true, id: data.id, ref: data.ref, status: data.status, tripDate: times.tripDate, boatName: data.boatName, departTime: times.departTime, duplicate: !!data.duplicate, response: data };
     });
   }
 
@@ -3505,7 +3864,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const go = opts.post ? opts.post(req) : postPlain(url, req, opts.fetch);
     return go.then((data) => {
       if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "No request found for that code", response: data };
-      return { ok: true, ref: data.ref, status: data.status, tripDate: data.tripDate, boatName: data.boatName, departTime: data.departTime };
+      const times = normalizePublicTimes({ tripDate: data.tripDate, departTime: data.departTime });
+      return { ok: true, ref: data.ref, status: data.status, tripDate: times.tripDate, boatName: data.boatName, departTime: times.departTime };
     });
   }
 
@@ -3537,11 +3897,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 </script>
 <script>
-/* BoatCloak v1.4.2 — crew + self-registration PWA (offline-first, optional shared sync) */
+/* BoatCloak v1.4.3 — crew + self-registration PWA (offline-first, optional shared sync) */
 (function () {
   "use strict";
   const C = window.BCCore;
-  const APP_VERSION = "1.4.2";
+  const APP_VERSION = "1.4.3";
   const IDB_NAME = "boatcloak";
   const IDB_NAME_LEGACY = "boatcheck";
   const IDB_STORE = "kv";
@@ -3567,7 +3927,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function telLink(phone, label) {
     const href = C.telHref(phone);
-    const text = label || phone || "";
+    const text = label || (C.formatPhone && C.formatPhone(phone)) || phone || "";
     if (!href) return esc(text);
     return '<a class="tel" href="' + esc(href) + '">' + esc(text) + "</a>";
   }
@@ -4374,7 +4734,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     html += '<div class="about-brand"><img src="icons/logo-emblem.png" alt="" width="48" height="48">' +
       '<div><div class="about-name">BoatCloak</div><div class="muted">v' + APP_VERSION + "</div></div></div>";
     html += "<p>BoatCloak is the crew app for dive boat trips. It keeps the diver roster and a simple show-up check-in, a paid or unpaid check, and a Return Divers database so repeat customers are easy to add next time. Crew can edit a trip from the Trips list, or by tapping the trip banner (or the pencil) at the top of the roster. Crew can mark experienced people with a Trusted tag (and an optional short note, such as “Deep cert, 200+ dives”).</p>";
-    html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them.</p>";
+    html += "<p>Divers sign up themselves from a public link. Print a general poster, or a per-trip poster with its own QR, so they can request that trip. Those requests land in the crew Requests inbox, where you can approve, waitlist, or decline them. Trip dates and times are shown in Japan Standard Time. The app will not create a second request, roster seat, or Return Divers record for someone who is already on that trip. Phone numbers are formatted automatically for Japan and US numbers.</p>";
     html += "<p>The app works offline first. Optional shared sync uses a Google Sheet and Apps Script so several crew phones share the same data; changes wait in an outbox until they can be sent. When the app is hosted, the web app URL is filled in from the site config — crew only type the crew key. Sun mode (the sun icon) is a high-contrast display for use in direct sunlight. You can export and import the Return Divers list as CSV or JSON, and export a full backup.</p>";
     html += "<p>Diver data stays in the shop’s private Google Sheet and on crew devices. The public page shows only trip details — not names, phones, or Trusted tags.</p>";
     html += '<p class="muted">Android: Chrome menu → Add to Home screen.<br>iPhone/iPad: Safari Share → Add to Home Screen.<br>Poster QR links only work once the app is hosted at a public https URL (GitHub Pages works). Opening this file from disk or email will not give divers a working link.</p>';
@@ -4383,8 +4743,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   function field(label, id, value, type, hint) {
+    const shown = (type === "tel" && C.formatPhone) ? C.formatPhone(value || "") : (value || "");
     return '<div class="field"><label for="' + id + '">' + esc(label) + "</label><input id=\"" +
-      id + '" type="' + (type || "text") + '" value="' + esc(value || "") + '">' +
+      id + '" type="' + (type || "text") + '" value="' + esc(shown) + '" autocomplete="' +
+      (type === "tel" ? "tel" : "off") + '"' + (type === "tel" ? ' inputmode="tel"' : "") + ">" +
       (hint ? '<div class="hint">' + esc(hint) + "</div>" : "") + "</div>";
   }
 
@@ -4455,7 +4817,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       }
       body += "</div>";
       body += '<div class="field"><label for="r-req-note">Note for the crew (optional)</label><textarea id="r-req-note">' + esc((regUi.diver && regUi.diver.notes) || "") + "</textarea></div>";
-      body += '<button type="button" class="btn primary block" data-act="reg-send-request"' + (regUi.trips && regUi.trips.length ? "" : " disabled") + ">Request this trip</button>";
+      body += '<button type="button" class="btn primary block" id="reg-send-request" data-act="reg-send-request"' + (regUi.sending || !(regUi.trips && regUi.trips.length) ? " disabled" : "") + '>' + (regUi.sending ? "Sending…" : "Request this trip") + "</button>";
       body += '<p><button type="button" class="btn ghost" data-act="reg-back-form">← Edit my details</button></p>';
     } else if (step === "done") {
       const res = regUi.result || {};
@@ -4463,7 +4825,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       if (res.tripDate || res.boatName) {
         body += '<p>' + esc(res.tripDate || "") + (res.departTime ? " · " + esc(res.departTime) : "") + (res.boatName ? " · " + esc(res.boatName) : "") + "</p>";
       }
-      body += '<p class="muted">' + (res.duplicate ? "We already have a pending request for this trip with this phone number." : "Request sent. The crew will approve or waitlist your spot.") + "</p></div>";
+      body += '<p class="muted" id="reg-dup-msg">' + (res.duplicate ? ("You already have a request for this trip, ref " + (res.ref || "")) : "Request sent. The crew will approve or waitlist your spot.") + "</p></div>";
       body += '<p id="reg-done-name" style="text-align:center;font-weight:800">' + esc((regUi.diver && regUi.diver.name) || "") + "</p>";
       body += '<div class="reg-actions"><button type="button" class="btn block" data-act="reg-back-form">Start over</button></div>';
       body += '<p class="muted">Keep this reference code. You can check your request status below.</p>';
@@ -4593,6 +4955,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   }
 
   async function sendSignupRequest() {
+    if (regUi.sending) return;
     const rec = regUi.diver || readRegForm();
     const tripId = regUi.selectedTripId;
     const noteEl = $("#r-req-note");
@@ -4600,15 +4963,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (!tripId) { toast("Choose a trip", true); return; }
     const v = C.validateSignupInput(Object.assign({}, rec, { tripId: tripId }));
     if (!v.ok) { toast(v.error, true); return; }
+    regUi.sending = true;
+    renderRegister();
     try {
       const res = await S.submitSignup(rec, tripId, regUi.config);
-      if (!res.ok) { toast(res.error || "Could not send the request", true); return; }
+      if (!res.ok) {
+        regUi.sending = false;
+        renderRegister();
+        toast(res.error || "Could not send the request", true);
+        return;
+      }
       regUi.diver = rec;
       regUi.result = res;
       regUi.step = "done";
+      regUi.sending = false;
       renderRegister();
-      toast(res.duplicate ? "You already have a pending request" : "Request sent");
+      toast(res.duplicate ? ("You already have a request for this trip, ref " + (res.ref || "")) : "Request sent");
     } catch (err) {
+      regUi.sending = false;
+      renderRegister();
       toast(err && err.message ? err.message : "Could not send the request", true);
     }
   }
@@ -4638,10 +5011,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function readRegForm() {
     return {
       name: ($("#r-name") && $("#r-name").value.trim()) || "",
-      phone: val("r-phone"),
+      phone: C.formatPhone ? C.formatPhone(val("r-phone")) : val("r-phone"),
       address: ($("#r-ad") && $("#r-ad").value.trim()) || "",
       emergencyName: val("r-en"),
-      emergencyPhone: val("r-ep"),
+      emergencyPhone: C.formatPhone ? C.formatPhone(val("r-ep")) : val("r-ep"),
       certLevel: val("r-cl"),
       certAgency: val("r-ca"),
       certNumber: val("r-cn"),
@@ -4888,10 +5261,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const nt = document.getElementById(p + "-nt");
     const rec = {
       name: val(p + "-name"),
-      phone: val(p + "-phone"),
+      phone: C.formatPhone ? C.formatPhone(val(p + "-phone")) : val(p + "-phone"),
       address: ad ? ad.value.trim() : "",
       emergencyName: val(p + "-en"),
-      emergencyPhone: val(p + "-ep"),
+      emergencyPhone: C.formatPhone ? C.formatPhone(val(p + "-ep")) : val(p + "-ep"),
       certLevel: val(p + "-cl"),
       certAgency: val(p + "-ca"),
       certNumber: val(p + "-cn"),
@@ -5925,7 +6298,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     }
   }
 
+  function bindPhoneListeners() {
+    if (bindPhoneListeners.bound) return;
+    bindPhoneListeners.bound = true;
+    document.addEventListener("input", (e) => {
+      const el = e.target;
+      if (!el || el.tagName !== "INPUT" || String(el.type).toLowerCase() !== "tel") return;
+      if (C.formatPhoneInput) C.formatPhoneInput(el, { partial: true });
+    });
+    document.addEventListener("focusout", (e) => {
+      const el = e.target;
+      if (!el || el.tagName !== "INPUT" || String(el.type).toLowerCase() !== "tel") return;
+      if (C.formatPhoneInput) C.formatPhoneInput(el, { partial: false });
+    });
+  }
+
   async function init() {
+    bindPhoneListeners();
     state = await loadState();
     if (!state || !state.settings) state = C.emptyState();
     document.documentElement.classList.toggle("hc", !!state.settings.highContrast);
