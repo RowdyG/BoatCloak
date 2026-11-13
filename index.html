@@ -418,6 +418,43 @@ html.hc .seg-opt:has(input:checked) { background: #000; color: var(--teal); bord
 .group-h.class { color: var(--teal); }
 #banner-activity { font-weight: 800; margin-top: 2px; }
 
+.tab-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; margin-left: 4px;
+  border-radius: 999px; background: var(--orange); color: #1a0a00;
+  font-size: .7rem; font-weight: 800;
+}
+.tab[aria-selected="true"] .tab-badge { background: #06211f; color: var(--teal); }
+html.hc .tab[aria-selected="true"] .tab-badge { background: #fff; color: #000; }
+.signup-open { color: var(--teal); font-weight: 800; font-size: .8rem; }
+.req-card { padding: 12px; }
+.req-card .ref { font-family: ui-monospace, monospace; font-weight: 800; letter-spacing: .06em; }
+.req-status { text-transform: uppercase; font-size: .75rem; font-weight: 800; }
+.req-status.pending { color: var(--amber); }
+.req-status.approved { color: var(--green); }
+.req-status.declined { color: var(--red); }
+.req-status.waitlist { color: var(--teal); }
+.open-trip-card {
+  text-align: left; width: 100%; margin-bottom: 8px;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  height: auto; min-height: 0; padding: 12px 14px; white-space: normal; line-height: 1.35; gap: 2px;
+}
+.open-trip-card .when, .open-trip-card .meta, .open-trip-card .seats { width: 100%; }
+.open-trip-card .when { font-weight: 800; }
+.open-trip-card .meta { font-weight: 600; color: var(--muted); font-size: .9rem; }
+.open-trip-card .seats { font-weight: 800; color: var(--teal); }
+.open-trip-card.full .seats { color: var(--orange); }
+.open-trip-card.selected { border-color: var(--teal); box-shadow: 0 0 0 2px color-mix(in srgb, var(--teal) 40%, transparent); }
+.ref-hero {
+  text-align: center; padding: 16px 12px; margin: 12px 0;
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+}
+.ref-hero .code { font-size: 2rem; font-weight: 800; letter-spacing: .14em; font-family: ui-monospace, monospace; }
+.offline-signup-note {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  padding: 10px 12px; margin: 0 0 12px; font-weight: 700;
+}
+
 </style>
   
 </head>
@@ -442,6 +479,7 @@ html.hc .seg-opt:has(input:checked) { background: #000; color: var(--teal); bord
       <button class="tab" role="tab" data-tab="pay">Pay</button>
       <button class="tab" role="tab" data-tab="customers">Divers</button>
       <button class="tab" role="tab" data-tab="trips">Trips</button>
+      <button class="tab" role="tab" data-tab="requests">Requests <span class="tab-badge" id="req-badge" hidden></span></button>
       <button class="tab" role="tab" data-tab="more">More</button>
     </nav>
     <main id="view" class="view"></main>
@@ -481,7 +519,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 })(typeof globalThis !== "undefined" ? globalThis : this, function () {
   "use strict";
 
-  const SCHEMA = 4;
+  const SCHEMA = 5;
   const APP_NAME = "BoatCloak";
   const APP_NAME_LEGACY = "BoatCheck";
   const PAYLOAD_PREFIX = "BC1:";
@@ -644,6 +682,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (state.customers && state.customers.length) return false;
     if (state.outbox && state.outbox.length) return false;
     if (state.pendingRegs && state.pendingRegs.length) return false;
+    if (state.signups && state.signups.length) return false;
     const set = state.settings || {};
     if (set.shopName && set.shopName !== "EXAMPLE Shop") return false;
     if (set.syncUrl || set.crewKey || set.hostedUrl) return false;
@@ -750,6 +789,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         createdAt: nowISO(),
         divers: [],
         log: [],
+        openForSignup: false,
+        departTime: "",
+        capacity: 0,
+        priceNote: "",
+        publicNotes: "",
       },
       partial || {}
     );
@@ -775,6 +819,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       currentTripId: null,
       outbox: [],
       pendingRegs: [],
+      signups: [],
     };
   }
 
@@ -1453,7 +1498,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       {
         app: APP_NAME,
         type: "divers",
-        appVersion: "1.3.0",
+        appVersion: "1.4.0",
         schema: SCHEMA,
         exportedAt: nowISO(),
         currency: (st.settings && st.settings.currency) || "JPY",
@@ -1701,6 +1746,206 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return lines.join("\n") + "\n";
   }
 
+
+  const SIGNUP_STATUSES = ["pending", "approved", "declined", "waitlist"];
+  const SIGNUP_LABEL = { pending: "Pending", approved: "Approved", declined: "Declined", waitlist: "Waitlist" };
+  const SIGNUP_REF_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+  function makeSignupRef() {
+    let s = "";
+    for (let i = 0; i < 6; i++) s += SIGNUP_REF_CHARS.charAt(Math.floor(Math.random() * SIGNUP_REF_CHARS.length));
+    return s;
+  }
+
+  function emptySignup(partial) {
+    const o = Object.assign(
+      {
+        id: uid("su"),
+        ref: "",
+        tripId: "",
+        name: "",
+        phone: "",
+        address: "",
+        certLevel: "",
+        certAgency: "",
+        certNumber: "",
+        emergencyName: "",
+        emergencyPhone: "",
+        notes: "",
+        activity: "fun",
+        instructor: "",
+        course: "",
+        status: "pending",
+        createdAt: nowISO(),
+        updatedAt: nowISO(),
+        updatedBy: "",
+        deleted: false,
+        customerId: "",
+        overbooked: false,
+      },
+      partial || {}
+    );
+    if (!o.ref) o.ref = makeSignupRef();
+    if (SIGNUP_STATUSES.indexOf(o.status) < 0) o.status = "pending";
+    o.activity = normalizeActivity(o).activity;
+    o.instructor = normalizeActivity(o).instructor;
+    o.course = normalizeActivity(o).course;
+    o.deleted = !!o.deleted;
+    o.overbooked = !!o.overbooked;
+    o.capacity = o.capacity; // ignore
+    return o;
+  }
+
+  function rosterHeadcount(divers) {
+    return (divers || []).filter((d) => d && !d.deleted && attendanceOf(d) !== "no_show").length;
+  }
+
+  function seatsLeft(trip) {
+    if (!trip) return null;
+    const cap = Number(trip.capacity) || 0;
+    if (cap <= 0) return null;
+    return Math.max(0, cap - rosterHeadcount(trip.divers));
+  }
+
+  function isOpenUpcoming(trip, today) {
+    if (!trip || trip.deleted || !trip.openForSignup) return false;
+    const day = today || todayJST();
+    return String(trip.date || "") >= String(day);
+  }
+
+  function sanitizeOpenTrip(trip, today) {
+    const left = seatsLeft(trip);
+    return {
+      id: trip && trip.id || "",
+      date: trip && trip.date || "",
+      boatName: trip && trip.boatName || "",
+      sites: trip && trip.sites || "",
+      departTime: trip && trip.departTime || "",
+      capacity: Number(trip && trip.capacity) || 0,
+      seatsLeft: left,
+      unlimited: left === null,
+      priceNote: trip && trip.priceNote || "",
+      publicNotes: trip && trip.publicNotes || "",
+      open: isOpenUpcoming(trip, today),
+    };
+  }
+
+  function sanitizeOpenTripList(trips, today) {
+    const day = today || todayJST();
+    return (trips || [])
+      .filter((t) => isOpenUpcoming(t, day))
+      .map((t) => sanitizeOpenTrip(t, day))
+      .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.departTime).localeCompare(String(b.departTime)));
+  }
+
+  function openTripHasPii(obj) {
+    if (!obj || typeof obj !== "object") return false;
+    const banned = ["phone", "address", "emergencyName", "emergencyPhone", "certNumber", "divers", "customers", "email"];
+    return banned.some((k) => Object.prototype.hasOwnProperty.call(obj, k) && obj[k] != null && obj[k] !== "");
+  }
+
+  function publicSignupStatus(signup, trip) {
+    return {
+      ref: signup && signup.ref || "",
+      status: signup && signup.status || "",
+      tripDate: (trip && trip.date) || (signup && signup.tripDate) || "",
+      boatName: (trip && trip.boatName) || (signup && signup.boatName) || "",
+      departTime: (trip && trip.departTime) || (signup && signup.departTime) || "",
+    };
+  }
+
+  function pendingSignupCount(signups) {
+    return (signups || []).filter((s) => s && !s.deleted && s.status === "pending").length;
+  }
+
+  function signupsForTrip(signups, tripId) {
+    return (signups || []).filter((s) => s && !s.deleted && s.tripId === tripId);
+  }
+
+  function isReturningSignup(signup, customers) {
+    if (!signup) return false;
+    return (customers || []).some((c) => samePerson(signup, c));
+  }
+
+  function applySignupDecision(state, signupId, decision, opts) {
+    opts = opts || {};
+    const st = clone(state || emptyState());
+    st.signups = (st.signups || []).map((s) => emptySignup(s));
+    const su = st.signups.find((s) => s.id === signupId || s.ref === signupId);
+    if (!su) return { ok: false, error: "Request not found" };
+    if (SIGNUP_STATUSES.indexOf(decision) < 0) return { ok: false, error: "Unknown decision" };
+    const trip = (st.trips || []).find((t) => t.id === su.tripId);
+    if (decision === "approved") {
+      if (!trip) return { ok: false, error: "Trip not found" };
+      if (su.status === "approved" && alreadyOnTrip(su, trip.divers).length) {
+        return { ok: true, state: st, signup: su, alreadyOnTrip: true };
+      }
+      const already = alreadyOnTrip(su, trip.divers);
+      if (!already.length) {
+        const left = seatsLeft(trip);
+        if (left !== null && left <= 0 && !opts.overbook) {
+          return { ok: false, needOverbook: true, error: "This trip is full. Approve anyway as an overbook?" };
+        }
+        const up = upsertCustomer(st.customers, emptyCustomer(su));
+        st.customers = up.customers;
+        const diver = emptyDiver({
+          name: su.name,
+          phone: su.phone,
+          address: su.address,
+          certLevel: su.certLevel,
+          certAgency: su.certAgency,
+          certNumber: su.certNumber,
+          emergencyName: su.emergencyName,
+          emergencyPhone: su.emergencyPhone,
+          notes: su.notes,
+          activity: su.activity,
+          instructor: su.instructor,
+          course: su.course,
+          customerId: up.customer.id,
+          addedVia: "signup",
+          payment: emptyPayment({ status: "unpaid" }),
+          attendance: "not_checked_in",
+          checkedInAt: null,
+        });
+        trip.divers = (trip.divers || []).concat([diver]);
+        trip.log = trip.log || [];
+        trip.log.push(logEntry("add", diver.name + " approved from sign-up" + (opts.overbook ? " (overbook)" : "")));
+        su.customerId = up.customer.id;
+        su.overbooked = !!(opts.overbook && left !== null && left <= 0);
+        su.status = "approved";
+        su.updatedAt = nowISO();
+        su.updatedBy = opts.crewName || su.updatedBy || "";
+        return { ok: true, state: st, signup: su, diver: diver, returning: !up.created, overbooked: su.overbooked };
+      }
+      su.customerId = already[0].customerId || su.customerId;
+    }
+    su.status = decision;
+    su.updatedAt = nowISO();
+    su.updatedBy = opts.crewName || su.updatedBy || "";
+    return { ok: true, state: st, signup: su };
+  }
+
+  function validateSignupInput(rec, opts) {
+    opts = opts || {};
+    const errors = [];
+    const name = String((rec && rec.name) || "").trim();
+    const phone = phoneDigits(rec && rec.phone);
+    if (name.length < 2) errors.push("Name is required");
+    if (name.length > 80) errors.push("Name is too long");
+    if (phone.length < 7) errors.push("A phone number is required so the crew can reach you");
+    if (phone.length > 20) errors.push("Phone number is too long");
+    const lens = [
+      ["address", 400], ["notes", 500], ["emergencyName", 80], ["emergencyPhone", 32],
+      ["certLevel", 80], ["certAgency", 40], ["certNumber", 40], ["instructor", 80], ["course", 80],
+    ];
+    lens.forEach((pair) => {
+      const k = pair[0], max = pair[1];
+      if (String((rec && rec[k]) || "").length > max) errors.push(k + " is too long");
+    });
+    if (!(rec && rec.tripId) && !opts.allowNoTrip) errors.push("Choose a trip");
+    return { ok: errors.length === 0, errors: errors, error: errors[0] || "" };
+  }
+
   function exportFilename(kind, date) {
     const d = date || todayJST();
     if (kind === "backup") return "boatcloak-backup-" + d + ".json";
@@ -1715,7 +1960,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     out.schema = SCHEMA;
     out.exportedAt = nowISO();
     out.app = APP_NAME;
-    out.appVersion = "1.3.0";
+    out.appVersion = "1.4.0";
     return JSON.stringify(out, null, 2);
   }
 
@@ -1760,6 +2005,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
     next.outbox = Array.isArray(data.outbox) ? data.outbox : [];
     next.pendingRegs = Array.isArray(data.pendingRegs) ? data.pendingRegs : [];
+    next.signups = Array.isArray(data.signups) ? data.signups.map((s) => emptySignup(s)) : [];
     next.schema = SCHEMA;
     return { ok: true, state: next };
   }
@@ -1792,6 +2038,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       sites: "Maeda Point, Residual Rocks",
       divemaster: "EXAMPLE — A. Tanaka",
       notes: "EXAMPLE trip for demonstration. Fictional divers only.",
+      openForSignup: true,
+      departTime: "08:30",
+      capacity: 16,
+      priceNote: "¥12,000 per diver",
+      publicNotes: "Meet at the dock 15 minutes before departure.",
     });
 
     const payments = [
@@ -2027,6 +2278,22 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   return {
     SCHEMA,
+    SIGNUP_STATUSES,
+    SIGNUP_LABEL,
+    emptySignup,
+    makeSignupRef,
+    rosterHeadcount,
+    seatsLeft,
+    isOpenUpcoming,
+    sanitizeOpenTrip,
+    sanitizeOpenTripList,
+    openTripHasPii,
+    publicSignupStatus,
+    pendingSignupCount,
+    signupsForTrip,
+    isReturningSignup,
+    applySignupDecision,
+    validateSignupInput,
     APP_NAME,
     APP_NAME_LEGACY,
     isOurAppName,
@@ -2134,7 +2401,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   "use strict";
 
   const API_VERSION = 1;
-  const COLLECTIONS = ["divers", "trips", "roster", "visits", "instructors", "pending"];
+  const COLLECTIONS = ["divers", "trips", "roster", "visits", "instructors", "pending", "signups"];
 
   function nowISO() {
     return C && C.nowISO ? C.nowISO() : new Date().toISOString();
@@ -2269,6 +2536,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         updatedAt: t.updatedAt,
         updatedBy: t.updatedBy,
         deleted: !!t.deleted,
+        openForSignup: !!t.openForSignup,
+        departTime: t.departTime || "",
+        capacity: Number(t.capacity) || 0,
+        priceNote: t.priceNote || "",
+        publicNotes: t.publicNotes || "",
       }, crew, false));
       (t.divers || []).forEach((d) => {
         const pay = (C && C.normalizePayment ? C.normalizePayment(d.payment) : (d.payment || {}));
@@ -2318,7 +2590,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
 
     const pending = (st.pendingRegs || []).map((p) => stamp(Object.assign({}, p), crew, false));
-    return { divers: divers, trips: trips, roster: roster, visits: visits, instructors: instructors, pending: pending };
+    const signups = (st.signups || []).map((s) => stamp(Object.assign({}, s), crew, false));
+    return { divers: divers, trips: trips, roster: roster, visits: visits, instructors: instructors, pending: pending, signups: signups };
   }
 
   /* Compare previous flatten to current, stamp changed records, and enqueue. */
@@ -2445,6 +2718,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       divemaster: row.divemaster,
       notes: row.notes,
       createdAt: row.createdAt,
+      openForSignup: asBool(row.openForSignup),
+      departTime: row.departTime || "",
+      capacity: Number(row.capacity) || 0,
+      priceNote: row.priceNote || "",
+      publicNotes: row.publicNotes || "",
     });
     t.updatedAt = row.updatedAt;
     t.updatedBy = row.updatedBy;
@@ -2501,6 +2779,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     const visits = mergeLists(flatten(next).visits, payload.visits, byCol.visits);
     const instructors = mergeLists(flatten(next).instructors, payload.instructors, byCol.instructors);
     const pending = mergeLists(next.pendingRegs || [], payload.pending, byCol.pending);
+    const signups = mergeLists(next.signups || [], payload.signups, byCol.signups);
 
     next.customers = divers.filter((r) => !asBool(r.deleted)).map(rowToCustomer);
     const visitByCust = {};
@@ -2553,7 +2832,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     localOrder.forEach((id) => { if (tripMap[id]) { mergedTrips.push(tripMap[id]); seen[id] = true; } });
     Object.keys(tripMap).forEach((id) => { if (!seen[id]) mergedTrips.push(tripMap[id]); });
     next.trips = mergedTrips;
-    if (next.currentTripId && !tripMap[next.currentTripId]) {
+    if (!next.currentTripId || !tripMap[next.currentTripId]) {
       next.currentTripId = (next.trips[0] && next.trips[0].id) || null;
     }
 
@@ -2569,10 +2848,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     next.instructors.sort((a, b) => String(a).localeCompare(String(b)));
 
     next.pendingRegs = pending || [];
+    next.signups = (signups || []).filter((s) => !asBool(s.deleted)).map((s) => {
+      return C && C.emptySignup ? C.emptySignup(s) : s;
+    });
     importPending(next, payload.pending || pending);
 
     next.outbox = clearOutbox(outbox, {
-      divers: divers, trips: trips, roster: roster, visits: visits, instructors: instructors, pending: pending,
+      divers: divers, trips: trips, roster: roster, visits: visits, instructors: instructors, pending: pending, signups: signups,
     });
     if (payload.serverTime) next.settings.lastSyncAt = payload.serverTime;
     else next.settings.lastSyncAt = nowISO();
@@ -2626,7 +2908,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
   function buildRequest(state, action) {
     const settings = (state && state.settings) || {};
-    const changes = { divers: [], trips: [], roster: [], visits: [], instructors: [], pending: [] };
+    const changes = { divers: [], trips: [], roster: [], visits: [], instructors: [], pending: [], signups: [] };
     if (!settings.lastSyncAt) {
       const flat = flatten(state);
       COLLECTIONS.forEach((c) => { changes[c] = flat[c] || []; });
@@ -2740,6 +3022,70 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     return { kind: "ready", label: "Ready to sync", pending: 0 };
   }
 
+
+  function publicConfigured(settings) {
+    const s = settings || {};
+    return !!(s.syncUrl && String(s.syncUrl).trim());
+  }
+
+  function listOpenTrips(settings, opts) {
+    opts = opts || {};
+    const url = (settings && settings.syncUrl) || "";
+    if (!url && !opts.post) return Promise.resolve({ ok: false, skipped: true, reason: "not configured", trips: [] });
+    const req = { action: "opentrips", key: (settings && settings.registerKey) || "" };
+    const go = opts.post ? opts.post(req) : postPlain(url, req, opts.fetch);
+    return go.then((data) => {
+      if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "Could not load trips", trips: [] };
+      const trips = Array.isArray(data.trips) ? data.trips : [];
+      const clean = trips.filter((t) => t && t.id && !(C && C.openTripHasPii && C.openTripHasPii(t)));
+      return { ok: true, trips: clean, response: data };
+    });
+  }
+
+  function submitSignup(diver, tripId, settings, opts) {
+    opts = opts || {};
+    const url = (settings && settings.syncUrl) || "";
+    if (!url && !opts.post) return Promise.resolve({ ok: false, skipped: true, reason: "not configured" });
+    const check = C && C.validateSignupInput ? C.validateSignupInput(Object.assign({}, diver, { tripId: tripId })) : { ok: true };
+    if (!check.ok) return Promise.resolve({ ok: false, error: check.error });
+    const req = {
+      action: "signup",
+      key: (settings && settings.registerKey) || "",
+      signup: {
+        name: diver.name,
+        phone: diver.phone,
+        address: diver.address,
+        certLevel: diver.certLevel,
+        certAgency: diver.certAgency,
+        certNumber: diver.certNumber,
+        emergencyName: diver.emergencyName,
+        emergencyPhone: diver.emergencyPhone,
+        notes: diver.notes,
+        activity: diver.activity || "fun",
+        instructor: diver.instructor || "",
+        course: diver.course || "",
+        tripId: tripId,
+      },
+    };
+    const go = opts.post ? opts.post(req) : postPlain(url, req, opts.fetch);
+    return go.then((data) => {
+      if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "Could not send the request", response: data };
+      return { ok: true, id: data.id, ref: data.ref, status: data.status, tripDate: data.tripDate, boatName: data.boatName, departTime: data.departTime, duplicate: !!data.duplicate, response: data };
+    });
+  }
+
+  function checkSignupStatus(ref, settings, opts) {
+    opts = opts || {};
+    const url = (settings && settings.syncUrl) || "";
+    if (!url && !opts.post) return Promise.resolve({ ok: false, skipped: true, reason: "not configured" });
+    const req = { action: "signupstatus", key: (settings && settings.registerKey) || "", ref: ref };
+    const go = opts.post ? opts.post(req) : postPlain(url, req, opts.fetch);
+    return go.then((data) => {
+      if (!data || data.ok === false) return { ok: false, error: (data && data.error) || "No request found for that code", response: data };
+      return { ok: true, ref: data.ref, status: data.status, tripDate: data.tripDate, boatName: data.boatName, departTime: data.departTime };
+    });
+  }
+
   return {
     API_VERSION: API_VERSION,
     COLLECTIONS: COLLECTIONS,
@@ -2756,6 +3102,10 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     pingGet: pingGet,
     runSync: runSync,
     runRegister: runRegister,
+    listOpenTrips: listOpenTrips,
+    submitSignup: submitSignup,
+    checkSignupStatus: checkSignupStatus,
+    publicConfigured: publicConfigured,
     statusOf: statusOf,
     clearOutbox: clearOutbox,
     instructorId: instructorId,
@@ -2764,11 +3114,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
 </script>
 <script>
-/* BoatCloak v1.3.0 — crew + self-registration PWA (offline-first, optional shared sync) */
+/* BoatCloak v1.4.0 — crew + self-registration PWA (offline-first, optional shared sync) */
 (function () {
   "use strict";
   const C = window.BCCore;
-  const APP_VERSION = "1.3.0";
+  const APP_VERSION = "1.4.0";
   const IDB_NAME = "boatcloak";
   const IDB_NAME_LEGACY = "boatcheck";
   const IDB_STORE = "kv";
@@ -3084,7 +3434,8 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     });
   }
 
-  let ui = { tab: "roster", payFilter: "all", attendFilter: "all", activityFilter: "all", search: "", custSearch: "", custSort: "name" };
+  let ui = { tab: "roster", payFilter: "all", attendFilter: "all", activityFilter: "all", search: "", custSearch: "", custSort: "name", reqFilter: "pending" };
+  let regUi = { step: "form", diver: null, trips: [], selectedTripId: "", result: null, config: undefined, status: null };
 
   function isRegisterMode() {
     const h = (location.hash || "").toLowerCase();
@@ -3123,16 +3474,25 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
     if (hcBtn) hcBtn.setAttribute("aria-pressed", state.settings.highContrast ? "true" : "false");
     renderBanner();
     $$(".tab").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === ui.tab ? "true" : "false"));
+    const selectedTab = document.querySelector('.tab[aria-selected="true"]');
+    if (selectedTab && selectedTab.scrollIntoView) selectedTab.scrollIntoView({ inline: "nearest", block: "nearest" });
     const view = $("#view");
-    if (!t && ui.tab !== "trips" && ui.tab !== "customers" && ui.tab !== "more") {
+    if (!t && ui.tab !== "trips" && ui.tab !== "customers" && ui.tab !== "more" && ui.tab !== "requests") {
       view.innerHTML = renderTripsView();
     } else if (ui.tab === "roster") view.innerHTML = renderRoster();
     else if (ui.tab === "board") view.innerHTML = renderBoard();
     else if (ui.tab === "pay") view.innerHTML = renderPay();
     else if (ui.tab === "customers") view.innerHTML = renderCustomers();
     else if (ui.tab === "trips") view.innerHTML = renderTripsView();
+    else if (ui.tab === "requests") view.innerHTML = renderRequestsView();
     else view.innerHTML = renderMore();
     renderDock();
+    const badge = $("#req-badge");
+    if (badge) {
+      const n = C.pendingSignupCount(state.signups);
+      badge.hidden = n < 1;
+      badge.textContent = n ? String(n) : "";
+    }
   }
 
   function renderBanner() {
@@ -3418,10 +3778,122 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         (ex ? ' <span class="badge-ex">EXAMPLE</span>' : "") +
         '</div><div class="who">' + esc(t.sites || "No site") +
         (t.divemaster ? " · DM " + esc(t.divemaster) : "") +
-        " · " + esc(C.attendanceBanner(ac)) + "</div></div>" +
+        " · " + esc(C.attendanceBanner(ac)) +
+        (t.openForSignup ? (C.isOpenUpcoming(t) ? ' · <span class="signup-open">Open for sign-up' + seatsLabel(t) + '</span>' : ' · Sign-up closed') : '') +
+        "</div></div>" +
         '<button class="btn sm primary" data-act="open-trip" data-id="' + esc(t.id) + '">Open</button></article>';
     });
     return html;
+  }
+
+
+  function seatsLabel(trip) {
+    const left = C.seatsLeft(trip);
+    if (left === null) return "";
+    if (left <= 0) return " · Full";
+    return " · " + left + (left === 1 ? " seat left" : " seats left");
+  }
+
+  function renderRequestsView() {
+    const cfg = S && S.configured(state.settings);
+    let html = '<div class="card"><h2>Sign-up requests</h2>';
+    if (!cfg) {
+      html += '<p class="muted" style="margin-top:0">Online sign-up needs Shared sync. When a backend is set up, divers can request a spot from the #register link and those requests appear here.</p></div>';
+    } else {
+      html += '<p class="muted" style="margin-top:0">Divers request a spot from the public registration page. Approve adds them to the trip unpaid and not checked in, and creates or merges their Return Divers record. Returning divers are matched by name and phone on this device — that match is never shown on the public page.</p></div>';
+    }
+    const list = (state.signups || []).slice().sort((a, b) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+    const pending = list.filter((s) => s.status === "pending");
+    const filter = ui.reqFilter || "pending";
+    const shown = filter === "all" ? list : list.filter((s) => s.status === filter);
+    html += '<div class="wrap" style="margin-bottom:10px">';
+    [["pending", "Pending"], ["approved", "Approved"], ["waitlist", "Waitlist"], ["declined", "Declined"], ["all", "All"]].forEach((pair) => {
+      const n = pair[0] === "all" ? list.length : list.filter((s) => s.status === pair[0]).length;
+      html += '<button class="btn sm' + (filter === pair[0] ? " primary" : "") + '" data-act="req-filter" data-filter="' + pair[0] + '">' + pair[1] + (n ? " (" + n + ")" : "") + "</button>";
+    });
+    html += "</div>";
+    if (!shown.length) {
+      html += '<div class="empty"><h3>' + (pending.length || filter !== "pending" ? "No requests in this view" : "No pending requests") + "</h3><p>When someone signs up from the public link, it will show up here and on every crew phone after sync.</p></div>";
+      return html;
+    }
+    const byTrip = {};
+    shown.forEach((s) => {
+      const k = s.tripId || "none";
+      if (!byTrip[k]) byTrip[k] = [];
+      byTrip[k].push(s);
+    });
+    Object.keys(byTrip).forEach((tripId) => {
+      const trip = (state.trips || []).find((t) => t.id === tripId);
+      const left = trip ? C.seatsLeft(trip) : null;
+      html += '<div class="card"><h2>' + esc((trip && ((trip.date || "") + " · " + (trip.boatName || "Untitled"))) || "Unknown trip") +
+        (trip && trip.departTime ? " · " + esc(trip.departTime) : "") +
+        (left === null ? "" : left <= 0 ? ' <span class="signup-open">Full</span>' : ' <span class="signup-open">' + left + " seats left</span>") +
+        "</h2>";
+      byTrip[tripId].forEach((s) => {
+        const returning = C.isReturningSignup(s, state.customers);
+        html += '<article class="req-card" style="border-top:1px solid var(--line);padding-top:10px;margin-top:10px">';
+        html += '<div class="row"><div class="grow"><div class="name" style="font-weight:800">' + esc(s.name) +
+          (returning ? ' <span class="chip return">Return</span>' : "") +
+          "</div>";
+        html += '<div class="meta">' + (s.phone ? telLink(s.phone, s.phone) : "") +
+          (s.activity === "class" ? " · Class" + (s.instructor ? " · " + esc(s.instructor) : "") + (s.course ? " · " + esc(s.course) : "") : " · Fun diving") +
+          "</div>";
+        if (s.notes) html += '<div class="meta">Note: ' + esc(s.notes) + "</div>";
+        html += '<div class="meta">Ref <span class="ref">' + esc(s.ref) + '</span> · <span class="req-status ' + esc(s.status) + '">' +
+          esc(C.SIGNUP_LABEL[s.status] || s.status) + "</span></div></div></div>";
+        if (s.status === "pending") {
+          html += '<div class="wrap" style="margin-top:8px">';
+          html += '<button class="btn sm primary" data-act="req-open" data-id="' + esc(s.id) + '">Review</button>';
+          html += '<button class="btn sm" data-act="req-decide" data-id="' + esc(s.id) + '" data-decision="waitlist">Waitlist</button>';
+          html += '<button class="btn sm danger" data-act="req-decide" data-id="' + esc(s.id) + '" data-decision="declined">Decline</button>';
+          html += "</div>";
+        }
+        html += "</article>";
+      });
+      html += "</div>";
+    });
+    return html;
+  }
+
+  function openSignupReview(signup) {
+    const s = signup;
+    const trip = (state.trips || []).find((t) => t.id === s.tripId);
+    const returning = C.isReturningSignup(s, state.customers);
+    const left = trip ? C.seatsLeft(trip) : null;
+    const body =
+      '<p style="margin-top:0"><strong>' + esc(s.name) + "</strong>" +
+      (returning ? ' <span class="chip return">Return diver</span>' : "") + "</p>" +
+      contactBlock(s) +
+      '<p class="muted">' + esc(C.activitySummary(s)) +
+      (s.notes ? "<br>Note: " + esc(s.notes) : "") +
+      "<br>Ref " + esc(s.ref) + "</p>" +
+      (trip ? '<p>' + esc(trip.date) + " · " + esc(trip.boatName || "") + (trip.departTime ? " · " + esc(trip.departTime) : "") +
+        (left === null ? "" : left <= 0 ? "<br><strong>This trip is full.</strong> Approving will overbook it." : "<br>" + left + " seats left.") +
+        "</p>" : '<p class="muted">Trip not found on this phone yet. Sync and try again.</p>') +
+      (s.status === "pending" ? '<div class="wrap">' +
+        '<button class="btn primary" data-act="req-decide" data-id="' + esc(s.id) + '" data-decision="approved">Approve</button>' +
+        '<button class="btn" data-act="req-decide" data-id="' + esc(s.id) + '" data-decision="waitlist">Waitlist</button>' +
+        '<button class="btn danger" data-act="req-decide" data-id="' + esc(s.id) + '" data-decision="declined">Decline</button></div>' : "");
+    openSheet("Request · " + (s.name || s.ref), body);
+  }
+
+  function decideSignup(id, decision, overbook) {
+    const res = C.applySignupDecision(state, id, decision, {
+      crewName: (state.settings && state.settings.crewName) || "",
+      overbook: !!overbook,
+    });
+    if (res.needOverbook) {
+      if (confirm(res.error || "This trip is full. Approve anyway as an overbook?")) return decideSignup(id, decision, true);
+      return;
+    }
+    if (!res.ok) { toast(res.error || "Could not update that request", true); return; }
+    state = res.state;
+    if (S) prevFlat = S.captureChanges(state, prevFlat);
+    scheduleSave();
+    closeModal();
+    render();
+    const label = C.SIGNUP_LABEL[decision] || decision;
+    toast((res.returning ? "Return diver approved" : label + " " + (res.signup && res.signup.name || "")) + (res.overbooked ? " (overbook)" : ""));
   }
 
   function renderMore() {
@@ -3476,7 +3948,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
 
     html += '<div class="card"><h2>About</h2>';
     html += '<p style="margin-top:0">BoatCloak v' + APP_VERSION +
-      " is an offline-first dive-boat roster, paid/unpaid check, and QR registration tool. It works with no account and no backend. Optional shared sync (More → Shared sync) can use a Google Sheet so several crew phones share the same roster and Return Divers database.</p>";
+      " is an offline-first dive-boat roster, paid/unpaid check, and QR registration tool. It works with no account and no backend. Optional shared sync (More → Shared sync) can use a Google Sheet so several crew phones share the same roster and Return Divers database. Divers can also request a spot on an open trip from the #register link; those requests appear on the Requests tab.</p>";
     html += '<p class="muted">Android: Chrome menu → Add to Home screen.<br>iPhone/iPad: Safari Share → Add to Home Screen.<br>Camera scanning needs https (or a saved home-screen app). Opening this file from disk or email will not unlock the camera — host the folder over https (GitHub Pages works) and open it from that address, or from the home-screen icon.</p>';
     html += '<p class="muted">The app keeps working with no backend configured (local-only). Self-registration poster links only work once the app is hosted at a public https URL. The shared Sheet holds divers’ phone, address, and emergency contact — keep it in the shop owner’s account and do not share it publicly.</p>';
     html += '<p class="sw-note" id="sw-status"></p></div>';
@@ -3496,7 +3968,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
   function renderDock() {
     const dock = $("#dock");
     dock.classList.remove("triple");
-    if (ui.tab === "more" || ui.tab === "trips") {
+    if (ui.tab === "more" || ui.tab === "trips" || ui.tab === "requests") {
       dock.innerHTML = '<button class="btn" data-act="show-poster">Poster</button><button class="btn primary" data-act="new-trip">New trip</button>';
       return;
     }
@@ -3518,59 +3990,239 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       "</select></div>";
   }
 
+
   function renderRegister() {
     const root = $("#app-register");
     const draft = loadDraft();
-    root.innerHTML =
-      '<div class="reg">' +
+    const step = regUi.step || "form";
+    let body = '<div class="reg">' +
       '<div class="brand" style="font-weight:800;display:flex;gap:8px;align-items:center"><img src="icons/logo-emblem.png" alt="" width="36" height="36" style="border-radius:50%;background:#FFFBEF"> BoatCloak</div>' +
-      "<h1>Diver self-registration</h1>" +
-      '<p class="muted">Fill this in on your phone, then show the QR code to the crew. The QR holds your details on this device. If the shop has shared sync turned on, a pending registration is also sent so crew can add you from the Return Divers list.</p>' +
-      '<form id="reg-form">' +
-      field("Full name *", "r-name", draft.name) +
-      field("Phone", "r-phone", draft.phone, "tel") +
-      '<div class="field"><span class="k-label">Activity</span><div class="seg" role="radiogroup" aria-label="Activity">' +
-      '<label class="seg-opt"><input type="radio" name="r-ay" id="r-ay-fun" value="fun"' +
-      ((draft.activity || "fun") !== "class" ? " checked" : "") + "> Fun dive</label>" +
-      '<label class="seg-opt"><input type="radio" name="r-ay" id="r-ay-class" value="class"' +
-      (draft.activity === "class" ? " checked" : "") + "> Class</label></div></div>" +
-      '<div class="class-only" id="r-class-fields"' + (draft.activity === "class" ? "" : " hidden") + ">" +
-      field("Instructor (optional)", "r-ir", draft.instructor) +
-      '<div class="field"><label for="r-co">Course (optional)</label><input id="r-co" list="r-co-list" value="' +
-      esc(draft.course || "") + '" placeholder="e.g. Open Water, Advanced, Rescue">' +
-      '<datalist id="r-co-list">' + C.COURSE_SUGGESTIONS.map((c) => "<option value=\"" + esc(c) + "\"></option>").join("") +
-      "</datalist></div></div>" +
-      textareaField("Address", "r-ad", draft.address, "Street, city, and anything the crew may need") +
-      field("Emergency contact name", "r-en", draft.emergencyName) +
-      field("Emergency contact phone", "r-ep", draft.emergencyPhone, "tel") +
-      '<div class="grid-2">' +
-      selectField("Cert level", "r-cl", C.CERT_LEVELS, draft.certLevel) +
-      selectField("Agency", "r-ca", C.AGENCIES, draft.certAgency) +
-      "</div>" +
-      field("Cert number", "r-cn", draft.certNumber) +
-      '<div class="field"><label for="r-nt">Notes</label><textarea id="r-nt">' + esc(draft.notes || "") + "</textarea></div>" +
-      '<div class="reg-actions"><button type="submit" class="btn primary block">Generate my QR code</button></div>' +
-      "</form>" +
-      '<div id="reg-qr-block" hidden>' +
-      '<div class="qr-wrap"><canvas id="reg-qr"></canvas></div>' +
-      '<p id="reg-qr-name" style="text-align:center;font-weight:800"></p>' +
-      '<div class="reg-actions">' +
-      '<button type="button" class="btn primary block" data-act="download-reg-qr">Download QR image</button>' +
-      '<button type="button" class="btn block" data-act="back-to-form">Edit details</button>' +
-      "</div>" +
-      '<p class="muted">Show this screen or the saved image to the crew. Keep the code in frame and in focus.</p>' +
-      "</div>" +
-      '<p style="margin-top:24px"><a href="#/" style="color:var(--muted)">Crew sign-in (staff)</a></p>' +
-      "</div>";
+      "<h1>Diver self-registration</h1>";
 
-    document.querySelectorAll("input[name=\"r-ay\"]").forEach((el) => {
-      el.addEventListener("change", () => {
-        const box = document.getElementById("r-class-fields");
-        if (box) box.hidden = el.value !== "class" || !el.checked;
-        const checked = document.querySelector("input[name=\"r-ay\"]:checked");
-        if (box) box.hidden = !(checked && checked.value === "class");
+    if (step === "trips") {
+      body += '<p class="muted">Choose a trip to request a spot. The crew will approve, waitlist, or decline your request.</p>';
+      body += '<div id="reg-trip-list">';
+      if (!regUi.trips || !regUi.trips.length) {
+        body += '<div class="offline-signup-note">There are no open trips right now. You can still generate a QR and show it to the crew.</div>';
+      } else {
+        (regUi.trips || []).forEach((tr) => {
+          const full = !tr.unlimited && tr.seatsLeft != null && tr.seatsLeft <= 0;
+          const sel = regUi.selectedTripId === tr.id;
+          body += '<button type="button" class="btn block open-trip-card' + (full ? " full" : "") + (sel ? " selected" : "") + '" data-act="reg-pick-trip" data-id="' + esc(tr.id) + '">' +
+            '<div class="when">' + esc(tr.date) + (tr.departTime ? " · " + esc(tr.departTime) : "") + " · " + esc(tr.boatName || "Boat") + "</div>" +
+            '<div class="meta">' + esc(tr.sites || "") + "</div>" +
+            (tr.priceNote ? '<div class="meta">' + esc(tr.priceNote) + "</div>" : "") +
+            (tr.publicNotes ? '<div class="meta">' + esc(tr.publicNotes) + "</div>" : "") +
+            '<div class="seats">' + (tr.unlimited ? "Open" : full ? "Full — you can still request a waitlist spot" : (tr.seatsLeft + (tr.seatsLeft === 1 ? " seat left" : " seats left"))) + "</div></button>";
+        });
+      }
+      body += "</div>";
+      body += '<div class="field"><label for="r-req-note">Note for the crew (optional)</label><textarea id="r-req-note">' + esc((regUi.diver && regUi.diver.notes) || "") + "</textarea></div>";
+      body += '<button type="button" class="btn primary block" data-act="reg-send-request"' + (regUi.trips && regUi.trips.length ? "" : " disabled") + ">Request this trip</button>";
+      body += '<button type="button" class="btn block" data-act="reg-qr-only" style="margin-top:8px">Just make a QR instead</button>';
+      body += '<p><button type="button" class="btn ghost" data-act="reg-back-form">← Edit my details</button></p>';
+    } else if (step === "qr") {
+      const diver = regUi.diver || {};
+      body += '<p class="muted">Show this QR to the crew. Your details stay on this device until they scan it.</p>';
+      body += '<div id="reg-qr-block"><div class="qr-wrap"><canvas id="reg-qr"></canvas></div>' +
+        '<p id="reg-qr-name" style="text-align:center;font-weight:800">' + esc(diver.name || "") + "</p>" +
+        '<div class="reg-actions">' +
+        '<button type="button" class="btn primary block" data-act="download-reg-qr">Download QR image</button>' +
+        '<button type="button" class="btn block" data-act="reg-back-form">Edit details</button></div>' +
+        '<p class="muted">Show this screen or the saved image to the crew. Keep the code in frame and in focus.</p></div>';
+    } else if (step === "done") {
+      const res = regUi.result || {};
+      body += '<div class="ref-hero"><div class="muted">Your reference code</div><div class="code" id="reg-ref-code">' + esc(res.ref || "") + "</div>";
+      if (res.tripDate || res.boatName) {
+        body += '<p>' + esc(res.tripDate || "") + (res.departTime ? " · " + esc(res.departTime) : "") + (res.boatName ? " · " + esc(res.boatName) : "") + "</p>";
+      }
+      body += '<p class="muted">' + (res.duplicate ? "We already have a pending request for this trip with this phone number." : "Request sent. The crew will approve or waitlist your spot.") + "</p></div>";
+      body += '<div id="reg-qr-block"><div class="qr-wrap"><canvas id="reg-qr"></canvas></div>' +
+        '<p id="reg-qr-name" style="text-align:center;font-weight:800">' + esc((regUi.diver && regUi.diver.name) || "") + "</p>" +
+        '<div class="reg-actions">' +
+        '<button type="button" class="btn primary block" data-act="download-reg-qr">Download QR image</button>' +
+        '<button type="button" class="btn block" data-act="reg-back-form">Start over</button></div>' +
+        '<p class="muted">Show this screen or the saved image to the crew. Keep the code in frame and in focus. You can also check your request status with the reference code below.</p></div>';
+    } else {
+      const noSignup = regUi.config === null;
+      const waiting = regUi.config === undefined;
+      body += '<p class="muted">Fill this in on your phone, then show the QR code to the crew. The QR holds your details on this device.</p>';
+      if (noSignup) {
+        body += '<div class="offline-signup-note" id="reg-online-note">Online sign-up is not set up. Generate a QR and show it to the crew.</div>';
+      } else if (waiting) {
+        body += '<p class="muted" id="reg-online-note">Checking whether online sign-up is available…</p>';
+      } else {
+        body += '<p class="muted" id="reg-online-note">After you fill this in, you can request a spot on an open trip. The crew gets that request on their phones.</p>';
+      }
+      body += '<form id="reg-form">' +
+        field("Full name *", "r-name", draft.name) +
+        field("Phone", "r-phone", draft.phone, "tel") +
+        '<div class="field"><span class="k-label">Activity</span><div class="seg" role="radiogroup" aria-label="Activity">' +
+        '<label class="seg-opt"><input type="radio" name="r-ay" id="r-ay-fun" value="fun"' +
+        ((draft.activity || "fun") !== "class" ? " checked" : "") + "> Fun dive</label>" +
+        '<label class="seg-opt"><input type="radio" name="r-ay" id="r-ay-class" value="class"' +
+        (draft.activity === "class" ? " checked" : "") + "> Class</label></div></div>" +
+        '<div class="class-only" id="r-class-fields"' + (draft.activity === "class" ? "" : " hidden") + ">" +
+        field("Instructor (optional)", "r-ir", draft.instructor) +
+        '<div class="field"><label for="r-co">Course (optional)</label><input id="r-co" list="r-co-list" value="' +
+        esc(draft.course || "") + '" placeholder="e.g. Open Water, Advanced, Rescue">' +
+        '<datalist id="r-co-list">' + C.COURSE_SUGGESTIONS.map((c) => "<option value=\"" + esc(c) + "\"></option>").join("") +
+        "</datalist></div></div>" +
+        textareaField("Address", "r-ad", draft.address, "Street, city, and anything the crew may need") +
+        field("Emergency contact name", "r-en", draft.emergencyName) +
+        field("Emergency contact phone", "r-ep", draft.emergencyPhone, "tel") +
+        '<div class="grid-2">' +
+        selectField("Cert level", "r-cl", C.CERT_LEVELS, draft.certLevel) +
+        selectField("Agency", "r-ca", C.AGENCIES, draft.certAgency) +
+        "</div>" +
+        field("Cert number", "r-cn", draft.certNumber) +
+        '<div class="field"><label for="r-nt">Notes</label><textarea id="r-nt">' + esc(draft.notes || "") + "</textarea></div>" +
+        '<div class="reg-actions"><button type="submit" class="btn primary block" id="reg-continue">' +
+        (regUi.config ? "Continue to trip list" : "Generate my QR code") + "</button></div>" +
+        "</form>" +
+        '<div id="reg-qr-block" hidden>' +
+        '<div class="qr-wrap"><canvas id="reg-qr"></canvas></div>' +
+        '<p id="reg-qr-name" style="text-align:center;font-weight:800"></p>' +
+        '<div class="reg-actions">' +
+        '<button type="button" class="btn primary block" data-act="download-reg-qr">Download QR image</button>' +
+        '<button type="button" class="btn block" data-act="back-to-form">Edit details</button>' +
+        "</div>" +
+        '<p class="muted">Show this screen or the saved image to the crew. Keep the code in frame and in focus.</p>' +
+        "</div>";
+    }
+
+    body += '<div class="card" style="margin-top:24px"><h2>Check a request</h2>' +
+      '<p class="muted" style="margin-top:0">Enter the reference code from your confirmation screen.</p>' +
+      field("Reference code", "reg-status-ref", (regUi.status && regUi.status.ref) || "", "text") +
+      '<button type="button" class="btn" data-act="reg-check-status">Check status</button>' +
+      '<p id="reg-status-out" class="muted" style="margin-top:10px">' +
+      (regUi.status && regUi.status.label ? esc(regUi.status.label) : "") + "</p></div>";
+    body += '<p style="margin-top:24px"><a href="#/" style="color:var(--muted)">Crew sign-in (staff)</a></p></div>';
+    root.innerHTML = body;
+    try { root.scrollTop = 0; window.scrollTo(0, 0); } catch (e) {}
+
+    if (step === "form") {
+      document.querySelectorAll("input[name=\"r-ay\"]").forEach((el) => {
+        el.addEventListener("change", () => {
+          const box = document.getElementById("r-class-fields");
+          const checked = document.querySelector("input[name=\"r-ay\"]:checked");
+          if (box) box.hidden = !(checked && checked.value === "class");
+        });
       });
-    });
+      if (regUi.config === undefined) probePublicSignup();
+    }
+    if ((step === "done" || step === "qr") && regUi.diver) {
+      const canvas = $("#reg-qr");
+      if (canvas) {
+        const payload = C.encodePayload(regUi.diver);
+        drawQrOnCanvas(canvas, payload, 360);
+        window._lastRegPayload = payload;
+        window._lastRegCanvas = canvas;
+      }
+    }
+  }
+
+  async function probePublicSignup() {
+    const cfg = await loadPublicSyncConfig();
+    if (!isRegisterMode()) return;
+    if (regUi.step !== "form") return;
+    regUi.config = cfg;
+    const note = $("#reg-online-note");
+    const btn = $("#reg-continue");
+    if (!cfg) {
+      if (note) note.innerHTML = "Online sign-up is not set up. Generate a QR and show it to the crew.";
+      if (note) note.className = "offline-signup-note";
+      if (btn) btn.textContent = "Generate my QR code";
+      return;
+    }
+    if (note) {
+      note.className = "muted";
+      note.textContent = "After you fill this in, you can request a spot on an open trip. The crew gets that request on their phones.";
+    }
+    if (btn) btn.textContent = "Continue to trip list";
+  }
+
+  async function afterRegForm(rec) {
+    saveDraft(rec);
+    const cfg = regUi.config === undefined ? await loadPublicSyncConfig() : regUi.config;
+    regUi.config = cfg;
+    if (!cfg || !S) {
+      regUi.diver = rec;
+      regUi.step = "qr";
+      renderRegister();
+      maybeRegisterPending(rec);
+      return;
+    }
+    toast("Loading open trips…");
+    try {
+      const listed = await S.listOpenTrips(cfg);
+      regUi.diver = rec;
+      regUi.trips = (listed && listed.ok && listed.trips) || [];
+      regUi.selectedTripId = (regUi.trips[0] && regUi.trips[0].id) || "";
+      regUi.step = "trips";
+      const t = document.getElementById("toast");
+      if (t) t.classList.remove("show");
+      renderRegister();
+    } catch (err) {
+      toast(err && err.message ? err.message : "Could not load trips", true);
+      regUi.diver = rec;
+      regUi.step = "qr";
+      renderRegister();
+      maybeRegisterPending(rec);
+    }
+  }
+
+  async function sendSignupRequest() {
+    const rec = regUi.diver || readRegForm();
+    const tripId = regUi.selectedTripId;
+    const noteEl = $("#r-req-note");
+    if (noteEl) rec.notes = noteEl.value;
+    if (!tripId) { toast("Choose a trip, or just make a QR instead", true); return; }
+    const v = C.validateSignupInput(Object.assign({}, rec, { tripId: tripId }));
+    if (!v.ok) { toast(v.error, true); return; }
+    try {
+      const res = await S.submitSignup(rec, tripId, regUi.config);
+      if (!res.ok) { toast(res.error || "Could not send the request", true); return; }
+      regUi.diver = rec;
+      regUi.result = res;
+      regUi.step = "done";
+      renderRegister();
+      toast(res.duplicate ? "You already have a pending request" : "Request sent");
+    } catch (err) {
+      toast(err && err.message ? err.message : "Could not send the request", true);
+    }
+  }
+
+  function showQrOnlyFromRegister() {
+    const rec = regUi.diver || readRegForm();
+    if (!rec || !rec.name) { toast("Name is required", true); return; }
+    saveDraft(rec);
+    regUi.diver = rec;
+    regUi.step = "qr";
+    renderRegister();
+    maybeRegisterPending(rec);
+  }
+
+  async function checkRegStatus() {
+    const ref = val("reg-status-ref");
+    if (!ref) { toast("Enter your reference code", true); return; }
+    const cfg = regUi.config || await loadPublicSyncConfig();
+    if (!cfg || !S) { toast("Online sign-up is not set up on this site", true); return; }
+    try {
+      const res = await S.checkSignupStatus(ref, cfg);
+      const out = $("#reg-status-out");
+      if (!res.ok) {
+        if (out) out.textContent = res.error || "No request found for that code";
+        toast(res.error || "No request found for that code", true);
+        return;
+      }
+      const label = (C.SIGNUP_LABEL[res.status] || res.status) +
+        (res.tripDate || res.boatName ? " · " + (res.tripDate || "") + (res.departTime ? " · " + res.departTime : "") + (res.boatName ? " · " + res.boatName : "") : "");
+      regUi.status = { ref: res.ref, label: label, status: res.status };
+      if (out) out.textContent = label;
+    } catch (err) {
+      toast(err && err.message ? err.message : "Could not check that code", true);
+    }
   }
 
   function readRegForm() {
@@ -3891,7 +4543,13 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       field("Boat name", "t-boat", t.boatName) +
       field("Site(s)", "t-sites", t.sites, "text", "e.g. Maeda Point, Residual Rocks") +
       field("Divemaster", "t-dm", t.divemaster) +
-      '<div class="field"><label for="t-notes">Notes</label><textarea id="t-notes">' + esc(t.notes || "") + "</textarea></div>" +
+      field("Departure time", "t-depart", t.departTime || "", "time", "Optional. Shown on the public sign-up list.") +
+      field("Capacity", "t-cap", t.capacity ? String(t.capacity) : "", "number", "Leave blank for no limit. Enforced when you approve a request.") +
+      field("Price (public)", "t-price", t.priceNote || "", "text", "Optional, e.g. ¥12,000 per diver") +
+      '<div class="field"><label for="t-public">Public notes</label><textarea id="t-public">' + esc(t.publicNotes || "") + '</textarea><div class="hint">Shown to divers on the sign-up page. Do not include anyone\'s personal details.</div></div>' +
+      '<label class="row" style="gap:10px;min-height:44px"><input type="checkbox" id="t-open"' +
+      (t.openForSignup ? " checked" : "") + '> Open this trip for online sign-up</label>' +
+      '<div class="field"><label for="t-notes">Crew notes (not published)</label><textarea id="t-notes">' + esc(t.notes || "") + "</textarea></div>" +
       '<button type="submit" class="btn primary block">' + (isNew ? "Create trip" : "Save trip") + "</button></form>";
     openSheet(isNew ? "New trip" : "Edit trip", body);
     $("#trip-form").addEventListener("submit", (e) => {
@@ -3902,6 +4560,11 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         sites: val("t-sites"),
         divemaster: val("t-dm"),
         notes: ($("#t-notes") && $("#t-notes").value) || "",
+        departTime: val("t-depart"),
+        capacity: Number(val("t-cap")) || 0,
+        priceNote: val("t-price"),
+        publicNotes: ($("#t-public") && $("#t-public").value) || "",
+        openForSignup: !!( $("#t-open") && $("#t-open").checked ),
       };
       if (isNew) {
         const nt = C.emptyTrip(rec);
@@ -4537,7 +5200,23 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       toast("Trip deleted");
       return;
     }
+    if (act === "req-filter") { ui.reqFilter = btn.dataset.filter || "pending"; render(); return; }
+    if (act === "req-open") {
+      const s = (state.signups || []).find((x) => x.id === id);
+      if (s) openSignupReview(s);
+      return;
+    }
+    if (act === "req-decide") {
+      decideSignup(id, btn.dataset.decision);
+      return;
+    }
+    if (act === "reg-pick-trip") { regUi.selectedTripId = id; renderRegister(); return; }
+    if (act === "reg-send-request") { sendSignupRequest(); return; }
+    if (act === "reg-qr-only") { showQrOnlyFromRegister(); return; }
+    if (act === "reg-back-form") { regUi.step = "form"; renderRegister(); return; }
+    if (act === "reg-check-status") { checkRegStatus(); return; }
     if (act === "returning-diver") { openReturningDiver(); return; }
+
     if (act === "ret-pick") {
       const c = (state.customers || []).find((x) => x.id === id);
       if (c) openReturningConfirm(c);
@@ -4695,8 +5374,9 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
       return;
     }
     if (act === "back-to-form") {
-      $("#reg-form").hidden = false;
-      $("#reg-qr-block").hidden = true;
+      regUi.step = "form";
+      if ($("#reg-form")) $("#reg-form").hidden = false;
+      if ($("#reg-qr-block")) $("#reg-qr-block").hidden = true;
       return;
     }
   }
@@ -4794,9 +5474,7 @@ var qrcode=function(){var t=function(t,r){var e=t,n=g[r],o=null,i=0,a=null,u=[],
         e.preventDefault();
         const rec = readRegForm();
         if (!rec.name) { toast("Name is required", true); return; }
-        saveDraft(rec);
-        showRegQr(rec);
-        maybeRegisterPending(rec);
+        afterRegForm(rec);
       }
     });
     if (S) prevFlat = S.flatten(state);

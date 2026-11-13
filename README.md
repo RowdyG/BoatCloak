@@ -1,6 +1,6 @@
-# BoatCloak — Dive Boat Tracker v1.3.0
+# BoatCloak — Dive Boat Tracker v1.4.0
 
-An installable, offline-first app for tracking divers on a boat: a trip roster, a simple attendance check (not checked in / showed up / optional no-show), a Return Divers database for repeat customers, a one-tap **Returning** check-in, a per-trip activity (fun diving or class with instructor and course), a paid vs unpaid check, and QR-based self-registration. It is a Progressive Web App. There is no app-store listing. All data stays on the phone unless you turn on optional shared sync.
+An installable, offline-first app for tracking divers on a boat: a trip roster, a simple attendance check (not checked in / showed up / optional no-show), a Return Divers database for repeat customers, a one-tap **Returning** check-in, a per-trip activity (fun diving or class with instructor and course), a paid vs unpaid check, QR-based self-registration, and optional online trip sign-up that sends a request to the crew. It is a Progressive Web App. There is no app-store listing. All data stays on the phone unless you turn on optional shared sync.
 
 Works on Android and iPhone/iPad once installed to the home screen. Built for use at sea, including with a weak or missing signal.
 
@@ -35,7 +35,7 @@ High-contrast (sun) mode is the sun icon in the header, or the toggle under More
 
 ## Updating from BoatCheck
 
-If a phone already has BoatCheck data, BoatCloak reads the old IndexedDB (`boatcheck`) and localStorage (`boatcheck-state`) keys and copies that data into the new BoatCloak keys. Nothing is deleted from the old store. Backups exported as BoatCheck JSON still import. Older diver QR codes (`BC3:`, `BC2:`, `BC1:`) still scan. The service worker cache name is new (`boatcloak-v1.3.0`), so an installed phone will pick up this version on the next visit over https.
+If a phone already has BoatCheck data, BoatCloak reads the old IndexedDB (`boatcheck`) and localStorage (`boatcheck-state`) keys and copies that data into the new BoatCloak keys. Nothing is deleted from the old store. Backups exported as BoatCheck JSON still import. Older diver QR codes (`BC3:`, `BC2:`, `BC1:`) still scan. The service worker cache name is new (`boatcloak-v1.4.0`), so an installed phone will pick up this version on the next visit over https.
 
 ## QR registration, offline
 
@@ -48,6 +48,8 @@ Crew can also scan a photo of a QR, or paste the `BC3:…`, older `BC2:…`, or 
 
 If shared sync is set up on the hosted site (`sync-config.json` next to `index.html`, with the web app URL and the limited register key only), submitting the self-registration form still shows the QR and also sends an append-only pending record for the crew to pick up. That public file must never contain the crew key.
 
+If online sign-up is not set up (no `sync-config.json`, or no backend), the `#register` page stays on the QR-only flow, with a clear note that online sign-up is not set up.
+
 ### Why the camera needs https
 
 Browsers only allow the camera (`getUserMedia`) in a [secure context](https://developer.mozilla.org/en-US/docs/Web/Security/Secure_Contexts): **https**, `localhost`, or an installed PWA that was first opened over https. Opening `index.html` from Files, Downloads, or an email attachment is `file://`, and the camera will be blocked. iOS Safari also needs `playsinline` (already set) and works more reliably from the home-screen icon.
@@ -56,9 +58,21 @@ Browsers only allow the camera (`getUserMedia`) in a [secure context](https://de
 
 Android Chrome and many desktop browsers can use the built-in `BarcodeDetector` API. iOS Safari does not, so BoatCloak falls back to a bundled copy of jsQR. Both paths run on the device.
 
+## Online trip sign-up (optional)
+
+Crew can mark a trip as open for sign-up when creating or editing it: date, boat, dive sites, departure time, capacity, and optional public price or notes. Those fields are published as a limited public list — trip info and seats left only. No diver names, phones, addresses, or emergency contacts are included. Internal crew notes and the divemaster name stay off the public list.
+
+When `#register` is hosted with `sync-config.json`, a diver fills in their details, then sees the open upcoming trips and can request a spot. They choose Fun diving or Class (with an instructor or course if known) and can add a note. Submitting sends a sign-up request with the register-only key. The confirmation screen shows a reference code plus the same QR as before. The diver can later check that request by reference code; the public reply is status and trip time only, not their personal details.
+
+Returning divers are recognized by phone and name on the crew side only. That match is never shown on the public page.
+
+On crew phones, a **Requests** tab (with a badge) lists pending requests per trip. **Approve** adds the diver to the roster as Unpaid and Not checked in, and creates or merges their Return Divers record. **Decline** or **Waitlist** sets that status instead. Capacity is enforced; approving a full trip asks for confirmation before overbooking. Status syncs to every crew phone that has Shared sync turned on.
+
+Without a backend, there is no online request — divers still generate a QR and show it to the crew.
+
 ## Using it on the boat
 
-1. Create a trip: date, boat name, site(s), divemaster.
+1. Create a trip: date, boat name, site(s), divemaster. Optionally set a departure time, capacity, public price or notes, and mark the trip open for online sign-up.
 2. Add divers (manual, from the Divers tab, **Returning**, or by QR). Each diver has a phone number, address, and emergency contact (name + phone). Phone numbers are tap-to-call. Every add or scan is saved to the Return Divers database.
 3. To check in a repeat customer, tap **Returning** on the Roster or Check-in tab. Search by name or phone (type-ahead, including close spellings). Pick a diver to review their saved phone, address, emergency contact, and last activity (fun diving or class with instructor and course), then add them. Payment starts as **Unpaid**. You can add and mark **Showed up** in the same step. If they are already on this trip, the app will not add a second copy. Turn on **Select several** to add more than one returning diver at once.
 4. On each trip, mark a diver as **Fun diving** or **Class**. For a class, pick (or add) the instructor and optionally the course (Open Water, Advanced, Rescue, or free text). The roster groups by fun dive vs class/instructor, and the banner shows a count such as `Fun 8 / Class: Smith 4, Lee 2`. Divers can also pick fun dive or class (and an instructor) on the self-registration form.
@@ -66,6 +80,7 @@ Android Chrome and many desktop browsers can use the built-in `BarcodeDetector` 
 6. The live banner shows a count such as `9 of 14 showed up, 2 no-shows`, plus the fun-dive / class split.
 7. Filter the list to **Not checked in** to see who has not arrived yet, or filter by Fun diving / Class / instructor. The Check-in tab also keeps a check-in log.
 8. On the **Pay** tab, set Paid / Unpaid / Partial, amount, method (cash / card / other), and a note. Filter the list and read collected vs outstanding totals for the trip.
+9. Open the **Requests** tab to approve, waitlist, or decline sign-up requests from the public link. Approved divers land on the roster unpaid and not checked in.
 
 ## Return Divers database
 
@@ -79,7 +94,7 @@ Export or import just this database as JSON or CSV under More → Return Divers 
 
 Several crew phones can share the same roster and Return Divers database through a Google Sheet and an Apps Script web app. This is optional. With no backend configured, BoatCloak stays local-only, as before.
 
-Setup is in `backend/SETUP.md`: create the Sheet, paste `backend/Code.gs`, set a `CREW_KEY`, deploy the web app (Execute as: Me, Who has access: Anyone), and enter the URL, crew key, and a crew name under **More → Shared sync** on each phone.
+Setup is in `backend/SETUP.md`: create the Sheet, paste `backend/Code.gs`, set a `CREW_KEY` and a `REGISTER_KEY`, deploy the web app (Execute as: Me, Who has access: Anyone), and enter the URL, crew key, and a crew name under **More → Shared sync** on each phone. If you already deployed an earlier version, paste the new `Code.gs` and deploy a **new version** of the same web app so Signups and OpenTrips tabs, and the public sign-up endpoints, go live. Optional crew email notices are off until you set `CREW_NOTIFY_EMAIL` yourself (see SETUP.md).
 
 The app stays offline-first. The local copy is the source while the phone has no signal. Changes go into a queue and are sent when the app is opened, after every change, every 30 seconds while the app is visible, or when you tap **Sync now**. A status chip in the header shows Local, syncing, waiting, or last synced. If two phones edit the same record, the later edit wins. Deleted records are kept as tombstones so other phones can drop them.
 
@@ -96,7 +111,7 @@ The Sheet holds divers’ personal information (phone, address, emergency contac
 
 ## Limitations
 
-- Without Shared sync, there is no live sync between devices; use a JSON backup (or turn on Shared sync) to share a roster.
+- Without Shared sync, there is no live sync between devices and no online trip sign-up; use a JSON backup (or turn on Shared sync) to share a roster. The public `#register` page stays on the QR-only flow until `sync-config.json` and a backend are in place.
 - Shared sync is last-write-wins per record. The script is not deployed by this package; the shop owner must set it up.
 - Camera, install, and offline cache need https (or localhost / an already-installed PWA).
 - The registration poster link only works once the app is hosted.
@@ -105,7 +120,7 @@ The Sheet holds divers’ personal information (phone, address, emergency contac
 
 ## Privacy
 
-The app does not include analytics. With no backend configured, nothing is uploaded. If you host the files on GitHub Pages or another host, that host will see ordinary page requests when someone first loads the app. If Shared sync is turned on, trip and diver records — including phone, address, and emergency contact — are stored in the shop owner’s Google Sheet. Keep that Sheet in the owner’s account and do not share it publicly.
+The app does not include analytics. With no backend configured, nothing is uploaded. If you host the files on GitHub Pages or another host, that host will see ordinary page requests when someone first loads the app. If Shared sync is turned on, trip and diver records — including phone, address, and emergency contact — are stored in the shop owner’s Google Sheet. Keep that Sheet in the owner’s account and do not share it publicly. The public open-trip list and the status-by-reference reply do not include diver personal information. Optional request-notification email is off by default.
 
 ## Licenses
 
